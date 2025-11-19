@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistema Checklist Documentos</title>
+    <title>Sistema Checklist Documentos (CLOUD)</title>
     <style>
         /* CSS BÁSICO PARA VISUALIZAÇÃO */
         body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f4; }
@@ -20,14 +20,14 @@
 <body>
 
     <div class="container">
-        <h1 id="titulo-cliente">Carregando Checklist...</h1>
+        <h1 id="titulo-cliente">Carregando Checklist do Servidor Cloud...</h1>
         <p id="loading-status"></p>
         
         <table id="checklist-table">
             <thead>
                 <tr>
                     <th>Documento Cobrado</th>
-                    <th>Status na Pasta</th>
+                    <th>Status no Bucket (S3/GCS)</th>
                     <th>Status Recebimento</th>
                     <th>Ação (Marcar)</th>
                 </tr>
@@ -40,33 +40,42 @@
     </div>
 
     <script>
-        // Mantenha essa variável no JS para saber qual cliente está sendo exibido
+        // --- CONFIGURAÇÃO CHAVE PARA A NUVEM ---
+        const BASE_URL = 'https://sistema-checklist.onrender.com'; 
         const CLIENTE_ID = 1; // ID do cliente que queremos carregar (MERCADO VIOLETA)
+        
         let clienteData = { id: CLIENTE_ID, nome: '' }; // Objeto para guardar dados do cliente
         
-        const API_GET_URL = `http://127.0.0.1:5000/api/clientes/${CLIENTE_ID}/comparacao`;
-        const API_POST_URL = 'http://127.0.0.1:5000/api/checklist/confirmar';
+        const API_GET_URL = `${BASE_URL}/api/clientes/${CLIENTE_ID}/comparacao`;
+        const API_POST_URL = `${BASE_URL}/api/checklist/confirmar`;
 
 
         // ---------------------------------------------
         // FUNÇÃO PRINCIPAL: CARREGAR DADOS DA API
         // ---------------------------------------------
         async function carregarChecklist() {
-            document.getElementById('loading-status').innerText = 'Conectando ao Backend e lendo a pasta...';
+            document.getElementById('loading-status').innerText = 'Conectando ao Backend na nuvem...';
             
             try {
                 const response = await fetch(API_GET_URL);
+                
+                // Trata erros de conexão antes de tentar ler o JSON
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`Erro HTTP: ${response.status} - ${errorText}`);
+                }
+
                 const data = await response.json();
                 
                 clienteData.nome = data.cliente_nome;
                 
-                document.getElementById('titulo-cliente').innerText = `Checklist para: ${data.cliente_nome}`;
+                document.getElementById('titulo-cliente').innerText = `Checklist para: ${data.cliente_nome} (via Render)`;
                 document.getElementById('loading-status').innerText = '';
 
                 renderizarTabela(data.comparacao);
             } catch (error) {
                 console.error('Erro ao buscar dados da API:', error);
-                document.getElementById('loading-status').innerText = 'Erro ao carregar dados. Verifique se o app.py está rodando.';
+                document.getElementById('loading-status').innerText = `Erro ao carregar dados. Verifique o console. Detalhe: ${error.message}`;
             }
         }
 
@@ -91,7 +100,7 @@
                 // Coluna 1: Nome Cobrado
                 row.insertCell().textContent = item.nome_cobrado;
                 
-                // Coluna 2: Status na Pasta
+                // Coluna 2: Status no Bucket
                 row.insertCell().textContent = item.encontrado_na_pasta;
                 
                 // Coluna 3: Status Recebimento (Valor inicial do BD)
@@ -155,16 +164,16 @@
                 const resultado = await response.json();
                 
                 if (response.ok) {
-                    alert(`Sucesso! Checklist de ${clienteData.nome} salvo.`);
+                    alert(`Sucesso! Checklist de ${clienteData.nome} salvo na nuvem.`);
                     // Recarrega a lista para mostrar o novo status vindo do BD
                     carregarChecklist(); 
                 } else {
-                    alert(`Erro ao salvar: ${resultado.erro}`);
+                    alert(`Erro ao salvar: ${resultado.erro || 'Erro desconhecido.'}`);
                 }
                 
             } catch (error) {
                 console.error('Erro ao enviar dados para a API:', error);
-                alert('Erro de conexão ao tentar salvar o checklist.');
+                alert('Erro de conexão ao tentar salvar o checklist na nuvem.');
             }
         }
 
