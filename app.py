@@ -5,7 +5,7 @@ from flask import Flask, jsonify, request
 from flask_jwt_extended import create_access_token, jwt_required, JWTManager
 from passlib.hash import pbkdf2_sha256
 from flask_cors import CORS
-from flask_sqlalchemy import SQLAlchemy # NOVO: Importa o SQLAlchemy
+from flask_sqlalchemy import SQLAlchemy 
 
 # Inicialização da Aplicação
 app = Flask(__name__)
@@ -20,7 +20,7 @@ app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "SUA_CHAVE_SECRE
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=1)
 jwt = JWTManager(app)
 
-# NOVO: Configuração do Banco de Dados PostgreSQL
+# Configuração do Banco de Dados PostgreSQL
 # Lê a DATABASE_URL da variável de ambiente no Render
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False 
@@ -28,19 +28,17 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 # Inicializa o SQLAlchemy
 db = SQLAlchemy(app)
 
-# NOVO: Importa os modelos APÓS a inicialização do 'db'
-# A ordem aqui é importante: db precisa ser definido antes que models.py o importe.
+# Importa os modelos APÓS a inicialização do 'db'
 from models import Cliente, Categoria 
 
 # SIMULAÇÃO DE USUÁRIOS (Senha de teste: '123456')
-# Este dicionário só é usado na rota /login para fins de autenticação.
 USUARIO_TESTE = {
     "username": "auditoria",
     "password_hash": "$pbkdf2-sha256$29000$.j/HuJeScu4dY0xJidEaQw$AOydwozsEvwPgCTORrIOzup7Nj7.iLnXvva..N3zUQA"
 }
 
 # ---------------------------------------------
-# NOVO: FUNÇÃO DE INICIALIZAÇÃO DE BANCO DE DADOS
+# FUNÇÃO DE INICIALIZAÇÃO E MIGRAÇÃO DE DADOS
 # ---------------------------------------------
 
 def inicializar_banco_de_dados():
@@ -53,9 +51,8 @@ def inicializar_banco_de_dados():
         if Cliente.query.count() == 0:
             print(">>> Banco de dados vazio. Iniciando carga de dados mestres...")
             
-            # Carregar dados do JSON (Ajuste o caminho se necessário)
             try:
-                # O caminho deve ser ajustado para a raiz do seu Web Service
+                # Carrega dados do JSON
                 with open('data/dados_mestres.json', 'r', encoding='utf-8') as f:
                     data_clientes = json.load(f)
             except FileNotFoundError:
@@ -70,15 +67,15 @@ def inicializar_banco_de_dados():
                     segmento=cliente_data['segmento']
                 )
                 db.session.add(novo_cliente)
-                db.session.flush() # Obtém o ID do cliente antes de processar as categorias
+                db.session.flush() # Obtém o ID do cliente
 
                 # Cria as Categorias
                 for cat_data in cliente_data['categorias']:
                     nova_categoria = Categoria(
                         cliente_id=novo_cliente.id,
-                        nome_categoria=cat_data['nome'],
+                        nome_categoria=cat_data['nome'], # CORRIGIDO: Usa a chave 'nome' do JSON
                         status_recebimento=cat_data.get('status_recebimento', 'PENDENTE'),
-                        detalhes_documentos=cat_data['detalhes_documentos'] # O setter do models.py converte a lista em JSON string
+                        detalhes_documentos=cat_data['documentos'] # CORRIGIDO: Usa a chave 'documentos' do JSON
                     )
                     db.session.add(nova_categoria)
             
@@ -149,12 +146,26 @@ def detalhes_cliente(cliente_id):
     for categoria in cliente.categorias.order_by(Categoria.nome_categoria).all():
         documentos = categoria.detalhes_documentos # Chama o getter que retorna o objeto Python
         
+        # AQUI É ONDE O 'STATUS_BUCKET' É INJETADO (Simulação de auditoria)
+        # O modelo inicial não tem status_bucket, então vamos simular que todos são 'Não' por padrão
+        documentos_com_status = []
+        for doc_nome in documentos:
+             # Nesta fase, apenas a lista de nomes de documentos é salva
+             # A lógica real para verificar o bucket e definir 'Sim' ou 'Não'
+             # não está implementada, então simulamos que todos são 'Sim' se a lista existir.
+             status_simulacao = 'Sim' 
+             documentos_com_status.append({
+                 "nome_documento": doc_nome,
+                 "status_bucket": status_simulacao
+             })
+        # FIM DA SIMULAÇÃO
+
         lista_categorias.append({
             "nome_categoria": categoria.nome_categoria,
             "status_recebimento": categoria.status_recebimento,
-            "total_documentos": len(documentos),
-            "documentos_encontrados": sum(1 for doc in documentos if doc['status_bucket'] == 'Sim'),
-            "detalhes_documentos": documentos 
+            "total_documentos": len(documentos_com_status),
+            "documentos_encontrados": sum(1 for doc in documentos_com_status if doc['status_bucket'] == 'Sim'),
+            "detalhes_documentos": documentos_com_status 
         })
         
     return jsonify({
@@ -179,7 +190,7 @@ def confirmar_recebimento():
         return jsonify({"erro": "Status inválido."}), 400
     
     try:
-        # 1. Busca a categoria no banco de dados usando o ID do Cliente e o Nome da Categoria
+        # 1. Busca a categoria no banco de dados
         categoria = Categoria.query.filter_by(
             cliente_id=cliente_id,
             nome_categoria=nome_categoria
