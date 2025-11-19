@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-bs-theme="dark"> <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Controle de Pendências FTP (Seguro)</title>
+    
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    
+    <style>
+        /* Ajustes de Tema Escuro */
+        .header-bg {
+            background-color: #212529 !important; /* Fundo escuro */
+            color: white;
+            padding: 20px 0;
+            margin-bottom: 30px;
+        }
+
+        /* Estilos dos Cards (Melhor Visualização) */
+        .cliente-card { 
+            transition: transform 0.2s, box-shadow 0.2s; 
+            border-left: 5px solid var(--bs-primary);
+            cursor: pointer;
+            height: 100%; /* Garante altura uniforme */
+        }
+        .cliente-card:hover { 
+            transform: translateY(-5px); 
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+        }
+        .cliente-card .progress-bar {
+            height: 8px;
+            font-size: 0;
+        }
+
+        /* Estilos das Categorias */
+        .categoria-item { 
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .categoria-pendente { border-left: 5px solid var(--bs-danger); }
+        .categoria-recebido { border-left: 5px solid var(--bs-success); }
+        .status-pendente { color: var(--bs-danger); font-weight: bold; }
+        .status-recebido { color: var(--bs-success); font-weight: bold; }
+        .documentos-table { margin-top: 10px; }
+        .doc-sim { color: var(--bs-success); }
+        .doc-nao { color: var(--bs-danger); }
+
+        /* Login Screen */
+        #login-screen {
+            max-width: 400px;
+            margin: 100px auto;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+        }
+
+        /* Tabela de Documentos */
+        .documentos-table { display: none; margin-top: 10px; }
+        .table.documentos-table {
+            --bs-table-bg: #343a40; /* Cor de fundo escura para a tabela */
+        }
+    </style>
+</head>
+<body>
+
+    <header class="header-bg">
+        <div class="container d-flex justify-content-between align-items-center">
+            <h1 id="titulo-principal" class="h3 mb-0">Controle de Pendências FTP</h1>
+            
+            <button class="btn btn-outline-light" id="theme-toggle" onclick="toggleTheme()">
+                <i class="bi bi-sun-fill"></i> Mudar para Claro
+            </button>
+        </div>
+    </header>
+
+    <div class="container">
+        
+        <div id="login-screen" class="card p-4 bg-dark-subtle">
+            <h2 class="text-center mb-4">Acesso Restrito</h2>
+            <p class="text-center text-muted small">Usuário: <code>auditoria</code> | Senha: <code>123456</code></p>
+            <form id="login-form">
+                <div class="mb-3">
+                    <input type="text" id="username" class="form-control" placeholder="Usuário" required>
+                </div>
+                <div class="mb-3">
+                    <input type="password" id="password" class="form-control" placeholder="Senha" required>
+                </div>
+                <button type="submit" class="btn btn-primary w-100">Entrar</button>
+            </form>
+            <p id="login-message" class="mt-3 text-center"></p>
+        </div>
+
+        <div id="tela-clientes" style="display: none;">
+            <div class="d-flex justify-content-end mb-3">
+                <button class="btn btn-outline-secondary" onclick="logout()">Sair</button>
+            </div>
+            <p class="text-center lead">Selecione um cliente para visualizar e controlar os documentos pendentes</p>
+            
+            <div id="cliente-listagem" class="row g-4 justify-content-center">
+                <p id="loading-clientes" class="text-center text-muted">Carregando lista de clientes da API...</p>
+            </div>
+        </div>
+
+        <div id="detalhe-cliente" style="display: none;">
+            <button class="btn btn-secondary mb-4" onclick="voltarParaClientes()">← Voltar</button>
+            <h2 id="cliente-detalhe-nome" class="text-success mb-4"></h2>
+            
+            <h3 class="mb-3">Categorias de Documentos</h3>
+            
+            <div class="d-flex justify-content-end mb-3">
+                <button class="btn btn-sm btn-outline-success me-2" onclick="marcarTodasCategorias(true)">
+                    <i class="bi bi-check-all"></i> Marcar Todos como Recebidos
+                </button>
+                <button class="btn btn-sm btn-outline-danger" onclick="marcarTodasCategorias(false)">
+                    <i class="bi bi-x-octagon"></i> Marcar Todos como Pendentes
+                </button>
+            </div>
+
+            <div id="lista-categorias">
+                </div>
+        </div>
+    </div>
+    
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <script>
+        const BASE_URL = 'https://sistema-checklist.onrender.com';
+        let clienteAtualId = null;
+        let clientesDataGlobal = [];
+        let authToken = localStorage.getItem('authToken');
+
+        // ---------------------------------------------
+        // FUNÇÕES DE TEMA
+        // ---------------------------------------------
+        function applyTheme(theme) {
+            document.documentElement.setAttribute('data-bs-theme', theme);
+            const toggleBtn = document.getElementById('theme-toggle');
+            if (theme === 'dark') {
+                toggleBtn.innerHTML = '<i class="bi bi-sun-fill"></i> Mudar para Claro';
+                localStorage.setItem('theme', 'dark');
+            } else {
+                toggleBtn.innerHTML = '<i class="bi bi-moon-fill"></i> Mudar para Escuro';
+                localStorage.setItem('theme', 'light');
+            }
+        }
+
+        function toggleTheme() {
+            const currentTheme = document.documentElement.getAttribute('data-bs-theme');
+            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+            applyTheme(newTheme);
+        }
+
+        // Carrega o tema salvo na inicialização
+        window.addEventListener('DOMContentLoaded', () => {
+            const savedTheme = localStorage.getItem('theme') || 'dark';
+            applyTheme(savedTheme);
+        });
+
+
+        // ---------------------------------------------
+        // FUNÇÕES DE SEGURANÇA E INICIALIZAÇÃO (MANTIDAS)
+        // ---------------------------------------------
+        
+        function getAuthHeaders() {
+            return {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            };
+        }
+
+        function checkAuth() {
+            if (authToken) {
+                mostrarTela('tela-clientes');
+                carregarClientes();
+            } else {
+                mostrarTela('login-screen');
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('authToken');
+            authToken = null;
+            checkAuth();
+            document.getElementById('login-message').innerText = 'Você foi desconectado.';
+        }
+
+        async function handleLogin(event) {
+            event.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const messageElement = document.getElementById('login-message');
+            messageElement.innerText = 'Autenticando...';
+
+            try {
+                const response = await fetch(`${BASE_URL}/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    authToken = data.access_token;
+                    localStorage.setItem('authToken', authToken);
+                    messageElement.innerText = 'Login bem-sucedido!';
+                    checkAuth();
+                } else {
+                    messageElement.innerText = data.msg || 'Falha na autenticação. Verifique usuário/senha.';
+                }
+            } catch (error) {
+                console.error('Erro de conexão ao tentar logar:', error);
+                messageElement.innerText = 'Erro de rede. Tente novamente mais tarde.';
+            }
+        }
+        
+        document.getElementById('login-form').addEventListener('submit', handleLogin);
+
+        // ---------------------------------------------
+        // FUNÇÕES DE NAVEGAÇÃO
+        // ---------------------------------------------
+
+        function mostrarTela(telaId) {
+            document.getElementById('login-screen').style.display = 'none';
+            document.getElementById('tela-clientes').style.display = 'none';
+            document.getElementById('detalhe-cliente').style.display = 'none';
+            document.getElementById(telaId).style.display = 'block';
+        }
+
+        function voltarParaClientes() {
+            clienteAtualId = null;
+            carregarClientes();
+            mostrarTela('tela-clientes');
+        }
+
+        // ---------------------------------------------
+        // ROTA 1: CARREGAR CLIENTES (VISUALIZAÇÃO APRIMORADA)
+        // ---------------------------------------------
+        async function carregarClientes() {
+            const loadingElement = document.getElementById('loading-clientes');
+            if (loadingElement) {
+                loadingElement.innerText = 'Carregando...';
+            }
+            
+            try {
+                const response = await fetch(`${BASE_URL}/api/clientes`, {
+                    method: 'GET',
+                    headers: getAuthHeaders() 
+                });
+                
+                if (response.status === 401) {
+                    alert("Sessão expirada. Faça login novamente.");
+                    logout();
+                    return;
+                }
+                
+                if (!response.ok) throw new Error('Falha ao carregar clientes');
+                
+                clientesDataGlobal = await response.json();
+                renderizarClientes(clientesDataGlobal);
+
+            } catch (error) {
+                console.error('Erro ao buscar clientes:', error);
+                const loadingElement = document.getElementById('loading-clientes');
+                if (loadingElement) {
+                    loadingElement.innerText = 'Erro ao carregar clientes da nuvem.';
+                }
+            }
+        }
+
+        function renderizarClientes(clientes) {
+            const listagemDiv = document.getElementById('cliente-listagem');
+            listagemDiv.innerHTML = ''; 
+            
+            if (clientes.length === 0) {
+                listagemDiv.innerHTML = '<p class="text-center text-muted">Nenhum cliente encontrado.</p>';
+                return;
+            }
+
+            clientes.forEach(cliente => {
+                const totalCats = cliente.total_categorias;
+                const concluidas = cliente.concluidas;
+                const percentual = totalCats > 0 ? Math.round((concluidas / totalCats) * 100) : 0;
+                
+                let progressClass = 'bg-danger';
+                if (percentual >= 100) {
+                    progressClass = 'bg-success';
+                } else if (percentual >= 50) {
+                    progressClass = 'bg-warning';
+                }
+
+                const colDiv = document.createElement('div');
+                colDiv.className = 'col-md-4 col-sm-6'; // Layout responsivo do Bootstrap
+
+                const card = document.createElement('div');
+                card.className = 'cliente-card card border-0 shadow'; // Card do Bootstrap aprimorado
+                card.onclick = () => carregarDetalhesCliente(cliente.id);
+
+                const concluidoText = `Concluídas: ${concluidas}`;
+                const pendentesText = `Pendentes: ${totalCats - concluidas}`;
+
+                card.innerHTML = `
+                    <div class="card-body">
+                        <h5 class="card-title text-primary">${cliente.nome}</h5>
+                        <h6 class="card-subtitle mb-2 text-muted small">${cliente.grupo} - ${cliente.segmento}</h6>
+                        <p class="card-text mb-1 small">ID: ${cliente.id}</p>
+                        
+                        <div class="mt-3">
+                            <p class="mb-1 small">Progresso: ${percentual}%</p>
+                            <div class="progress" role="progressbar" aria-label="Progresso" aria-valuenow="${percentual}" aria-valuemin="0" aria-valuemax="100">
+                                <div class="progress-bar ${progressClass}" style="width: ${percentual}%"></div>
+                            </div>
+                        </div>
+
+                        <div class="d-flex justify-content-between mt-2 small">
+                            <span class="${percentual === 100 ? 'text-success' : 'text-danger'}">${totalCats} Categorias</span>
+                            <span class="${percentual === 100 ? 'text-success' : 'text-warning'}">${concluidoText}</span>
+                        </div>
+                    </div>
+                `;
+                colDiv.appendChild(card);
+                listagemDiv.appendChild(colDiv);
+            });
+            
+            const loadingElement = document.getElementById('loading-clientes');
+            if (loadingElement) {
+                loadingElement.style.display = 'none';
+            }
+        }
+
+        // ---------------------------------------------
+        // ROTA 2: CARREGAR DETALHES DAS CATEGORIAS (CAIXA DE SELEÇÃO)
+        // ---------------------------------------------
+        async function carregarDetalhesCliente(clienteId) {
+            clienteAtualId = clienteId;
+            mostrarTela('detalhe-cliente');
+            document.getElementById('cliente-detalhe-nome').innerText = 'Carregando detalhes...';
+            document.getElementById('lista-categorias').innerHTML = '';
+
+            try {
+                const response = await fetch(`${BASE_URL}/api/clientes/${clienteId}/categorias`, {
+                    method: 'GET',
+                    headers: getAuthHeaders() 
+                });
+                
+                if (response.status === 401) {
+                    alert("Sessão expirada. Faça login novamente.");
+                    logout();
+                    return;
+                }
+
+                if (!response.ok) throw new Error('Falha ao carregar detalhes do cliente');
+                
+                const data = await response.json();
+                
+                document.getElementById('cliente-detalhe-nome').innerText = data.cliente_nome;
+                renderizarCategorias(data.categorias);
+
+            } catch (error) {
+                console.error('Erro ao buscar categorias:', error);
+                document.getElementById('lista-categorias').innerHTML = '<p class="text-danger">Erro ao carregar categorias da API.</p>';
+            }
+        }
+        
+        function renderizarCategorias(categorias) {
+            const listaDiv = document.getElementById('lista-categorias');
+            listaDiv.innerHTML = '';
+            
+            categorias.forEach(categoria => {
+                const isRecebido = categoria.status_recebimento === 'RECEBIDO';
+                const totalDocs = categoria.total_documentos;
+                const docsEncontrados = categoria.documentos_encontrados;
+                const nomeCategoria = categoria.nome_categoria;
+                const tableId = `collapse-${nomeCategoria.replace(/\s/g, '-')}`;
+
+                const itemDiv = document.createElement('div');
+                itemDiv.className = `list-group-item d-flex justify-content-between align-items-center mb-2 categoria-item ${isRecebido ? 'categoria-recebido' : 'categoria-pendente'}`;
+
+                // Conteúdo Principal
+                itemDiv.innerHTML = `
+                    <div class="form-check me-3">
+                        <input class="form-check-input categoria-checkbox" 
+                                type="checkbox" 
+                                value="" 
+                                id="check-${tableId}"
+                                ${isRecebido ? 'checked' : ''}
+                                onchange="marcarCategoria(event, '${nomeCategoria}', this.checked)">
+                        <label class="form-check-label" for="check-${tableId}">
+                            <div data-bs-toggle="collapse" data-bs-target="#${tableId}" onclick="event.stopPropagation()">
+                                <h6 class="mb-1">${nomeCategoria}</h6>
+                                <p class="mb-1 small text-muted">
+                                    Documentos: ${totalDocs} | Encontrados: ${docsEncontrados}
+                                </p>
+                                <p class="mb-0 small categoria-status ${isRecebido ? 'status-recebido' : 'status-pendente'}">
+                                    Status: ${categoria.status_recebimento}
+                                </p>
+                            </div>
+                        </label>
+                    </div>
+                `;
+                
+                // Botão de ação (opcional, mantido por clareza, mas a checkbox é o principal)
+                const actionDiv = document.createElement('div');
+                actionDiv.innerHTML = `
+                    <button class="btn btn-sm btn-outline-primary" 
+                            data-bs-toggle="collapse" 
+                            data-bs-target="#${tableId}" 
+                            title="Ver Detalhes">
+                        <i class="bi bi-eye"></i>
+                    </button>
+                `;
+                itemDiv.appendChild(actionDiv);
+                
+                // Tabela de Documentos Oculta
+                const tableContainer = document.createElement('div');
+                tableContainer.className = 'collapse mb-3';
+                tableContainer.id = tableId; 
+                
+                const table = document.createElement('table');
+                table.className = 'table table-sm table-bordered documentos-table';
+                table.style.display = 'table';
+                table.innerHTML = `
+                    <thead class="table-light"><tr><th>Documento Cobrado</th><th>Status no Bucket</th></tr></thead>
+                    <tbody>${categoria.detalhes_documentos.map(doc => `
+                        <tr>
+                            <td>${doc.nome_documento}</td>
+                            <td class="${doc.status_bucket === 'Sim' ? 'doc-sim' : 'doc-nao'}">${doc.status_bucket}</td>
+                        </tr>
+                    `).join('')}</tbody>
+                `;
+                
+                tableContainer.appendChild(table);
+                listaDiv.appendChild(itemDiv);
+                listaDiv.appendChild(tableContainer);
+            });
+        }
+        
+        // ---------------------------------------------
+        // FUNÇÕES DE INTERAÇÃO (MARCAR TODOS)
+        // ---------------------------------------------
+
+        async function marcarTodasCategorias(marcarComoRecebido) {
+            if (!clienteAtualId) return;
+
+            const confirmMsg = marcarComoRecebido 
+                ? "Tem certeza que deseja marcar TODAS as categorias como RECEBIDAS?"
+                : "Tem certeza que deseja marcar TODAS as categorias como PENDENTES?";
+
+            if (!confirm(confirmMsg)) return;
+
+            const novoStatus = marcarComoRecebido ? 'RECEBIDO' : 'PENDENTE';
+            const categoriasCheckboxes = document.querySelectorAll('#lista-categorias .categoria-checkbox');
+            let promises = [];
+
+            // Dispara as requisições para todas as categorias
+            categoriasCheckboxes.forEach(checkbox => {
+                const nomeCategoria = checkbox.id.replace('check-collapse-', '').replace(/-/g, ' ');
+                
+                if (checkbox.checked !== marcarComoRecebido) {
+                    const payload = {
+                        cliente_id: clienteAtualId,
+                        nome_categoria: nomeCategoria,
+                        status: novoStatus
+                    };
+                    
+                    promises.push(fetch(`${BASE_URL}/api/categorias/confirmar`, {
+                        method: 'POST',
+                        headers: getAuthHeaders(),
+                        body: JSON.stringify(payload)
+                    }));
+                }
+            });
+
+            if (promises.length === 0) {
+                 alert("Não houve mudanças de status a serem aplicadas.");
+                 return;
+            }
+
+            try {
+                // Espera todas as requisições terminarem
+                await Promise.all(promises);
+                alert(`Sucesso! ${promises.length} categorias atualizadas para ${novoStatus}.`);
+                
+                // Recarrega os detalhes para atualizar o visual
+                carregarDetalhesCliente(clienteAtualId); 
+            } catch (error) {
+                console.error('Erro ao salvar em lote:', error);
+                alert('Ocorreu um erro ao tentar salvar todas as categorias. Verifique sua conexão e tente novamente.');
+            }
+        }
+
+
+        // Função única para marcar/reverter uma categoria (chamada pela checkbox)
+        async function marcarCategoria(event, nomeCategoria, marcarComoRecebido) {
+            event.stopPropagation(); 
+
+            const novoStatus = marcarComoRecebido ? 'RECEBIDO' : 'PENDENTE';
+            
+            const payload = {
+                cliente_id: clienteAtualId,
+                nome_categoria: nomeCategoria,
+                status: novoStatus
+            };
+
+            try {
+                const response = await fetch(`${BASE_URL}/api/categorias/confirmar`, {
+                    method: 'POST',
+                    headers: getAuthHeaders(),
+                    body: JSON.stringify(payload)
+                });
+                
+                if (response.status === 401) {
+                    alert("Sessão expirada. Faça login novamente.");
+                    logout();
+                    return;
+                }
+                
+                const resultado = await response.json();
+                
+                if (response.ok) {
+                    // console.log(`Categoria '${nomeCategoria}' marcada como ${novoStatus}.`);
+                    // Recarrega os detalhes para que o status e a contagem sejam atualizados
+                    carregarDetalhesCliente(clienteAtualId); 
+                } else {
+                    alert(`Erro ao salvar: ${resultado.erro || 'Erro desconhecido.'}`);
+                    // Reverte o estado da checkbox se houver erro
+                    event.target.checked = !marcarComoRecebido;
+                }
+                
+            } catch (error) {
+                console.error('Erro de conexão ao tentar salvar:', error);
+                alert('Erro de conexão ao tentar salvar o status na nuvem.');
+                // Reverte o estado da checkbox se houver erro
+                event.target.checked = !marcarComoRecebido;
+            }
+        }
+
+        // INICIA O FLUXO
+        window.onload = checkAuth;
+    </script>
+</body>
+</html>
