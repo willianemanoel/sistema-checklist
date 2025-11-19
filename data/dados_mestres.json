@@ -1,0 +1,23 @@
+[
+  {
+    "id_cliente": 1,
+    "nome_cliente": "MERCADO VIOLETA LTDA",
+    "bucket_cliente": "arquivos-clientes/mercado_violeta", 
+    "documentos_cobranca": [
+      "09060-5_AplicAut.xls",
+      "10.2025_ExtratoBB_Loja 2_Aplic.pdf",
+      "10.2025_ExtratoBB_Loja 5_Aplic.pdf",
+      "11576-6_AplicAut.xls"
+    ]
+  },
+  {
+    "id_cliente": 2,
+    "nome_cliente": "INTERFRIOS COMERCIO DE FRIOS",
+    "bucket_cliente": "arquivos-clientes/interfrios",
+    "documentos_cobranca": [
+      "2502 - INTERFRIOS CSLL.pdf",
+      "25223-9_AplicAut.xls",
+      "98998-8_AplicAut.xls"
+    ]
+  }
+]

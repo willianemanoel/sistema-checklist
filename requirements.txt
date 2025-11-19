@@ -1,0 +1,6 @@
+Flask
+Flask-SQLAlchemy
+Flask-CORS
+waitress  # Servidor de produção para o Render
+# Adicione outras libs que você usou (ex: pandas, etc.)
+web: waitress-serve --host=0.0.0.0 --port=$PORT app:app

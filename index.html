@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema Checklist Documentos</title>
+    <style>
+        /* CSS BÁSICO PARA VISUALIZAÇÃO */
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f4; }
+        .container { background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { padding: 12px; border: 1px solid #ddd; text-align: left; }
+        th { background-color: #007bff; color: white; }
+        .status-nao { background-color: #ffdddd; }
+        .status-recebido { background-color: #ddffdd; }
+        .btn-salvar { background-color: #28a745; color: white; padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; margin-top: 20px; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1 id="titulo-cliente">Carregando Checklist...</h1>
+        <p id="loading-status"></p>
+        
+        <table id="checklist-table">
+            <thead>
+                <tr>
+                    <th>Documento Cobrado</th>
+                    <th>Status na Pasta</th>
+                    <th>Status Recebimento</th>
+                    <th>Ação (Marcar)</th>
+                </tr>
+            </thead>
+            <tbody>
+                </tbody>
+        </table>
+        
+        <button class="btn-salvar" onclick="salvarChecklist()">Salvar Confirmação</button>
+    </div>
+
+    <script>
+        // Mantenha essa variável no JS para saber qual cliente está sendo exibido
+        const CLIENTE_ID = 1; // ID do cliente que queremos carregar (MERCADO VIOLETA)
+        let clienteData = { id: CLIENTE_ID, nome: '' }; // Objeto para guardar dados do cliente
+        
+        const API_GET_URL = `http://127.0.0.1:5000/api/clientes/${CLIENTE_ID}/comparacao`;
+        const API_POST_URL = 'http://127.0.0.1:5000/api/checklist/confirmar';
+
+
+        // ---------------------------------------------
+        // FUNÇÃO PRINCIPAL: CARREGAR DADOS DA API
+        // ---------------------------------------------
+        async function carregarChecklist() {
+            document.getElementById('loading-status').innerText = 'Conectando ao Backend e lendo a pasta...';
+            
+            try {
+                const response = await fetch(API_GET_URL);
+                const data = await response.json();
+                
+                clienteData.nome = data.cliente_nome;
+                
+                document.getElementById('titulo-cliente').innerText = `Checklist para: ${data.cliente_nome}`;
+                document.getElementById('loading-status').innerText = '';
+
+                renderizarTabela(data.comparacao);
+            } catch (error) {
+                console.error('Erro ao buscar dados da API:', error);
+                document.getElementById('loading-status').innerText = 'Erro ao carregar dados. Verifique se o app.py está rodando.';
+            }
+        }
+
+        // ---------------------------------------------
+        // FUNÇÃO: RENDERIZAR A INTERFACE
+        // ---------------------------------------------
+        function renderizarTabela(comparacao) {
+            const tbody = document.querySelector('#checklist-table tbody');
+            tbody.innerHTML = ''; // Limpa a tabela
+
+            comparacao.forEach(item => {
+                const row = tbody.insertRow();
+                
+                // Aplica classes de cor conforme o status
+                if (item.encontrado_na_pasta === 'Não') {
+                    row.classList.add('status-nao');
+                }
+                if (item.status_atual === 'RECEBIDO') {
+                    row.classList.add('status-recebido');
+                }
+                
+                // Coluna 1: Nome Cobrado
+                row.insertCell().textContent = item.nome_cobrado;
+                
+                // Coluna 2: Status na Pasta
+                row.insertCell().textContent = item.encontrado_na_pasta;
+                
+                // Coluna 3: Status Recebimento (Valor inicial do BD)
+                const statusCell = row.insertCell();
+                statusCell.textContent = item.status_atual;
+                statusCell.dataset.docId = item.id; // Guarda o ID do documento do BD
+                
+                // Coluna 4: Checkbox de Ação
+                const acaoCell = row.insertCell();
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.checked = (item.status_atual === 'RECEBIDO');
+                
+                // Evento para atualizar o status e cor localmente
+                checkbox.addEventListener('change', (e) => {
+                    const novoStatus = e.target.checked ? 'RECEBIDO' : 'PENDENTE';
+                    statusCell.textContent = novoStatus;
+
+                    // Atualiza a cor da linha
+                    row.classList.remove('status-recebido');
+                    if (novoStatus === 'RECEBIDO') {
+                        row.classList.add('status-recebido');
+                    }
+                });
+                
+                acaoCell.appendChild(checkbox);
+            });
+        }
+
+        // ---------------------------------------------
+        // FUNÇÃO: SALVAR CHECKLIST (API POST)
+        // ---------------------------------------------
+        async function salvarChecklist() {
+            const linhas = document.querySelectorAll('#checklist-table tbody tr');
+            const dadosParaSalvar = [];
+            
+            linhas.forEach(linha => {
+                const statusFinal = linha.cells[2].textContent;
+                const docId = linha.cells[2].dataset.docId; // Pega o ID do BD
+                
+                dadosParaSalvar.push({
+                    id: docId,
+                    status: statusFinal
+                });
+            });
+            
+            const payload = {
+                cliente_id: clienteData.id,
+                documentos: dadosParaSalvar
+            };
+
+            try {
+                const response = await fetch(API_POST_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+                
+                const resultado = await response.json();
+                
+                if (response.ok) {
+                    alert(`Sucesso! Checklist de ${clienteData.nome} salvo.`);
+                    // Recarrega a lista para mostrar o novo status vindo do BD
+                    carregarChecklist(); 
+                } else {
+                    alert(`Erro ao salvar: ${resultado.erro}`);
+                }
+                
+            } catch (error) {
+                console.error('Erro ao enviar dados para a API:', error);
+                alert('Erro de conexão ao tentar salvar o checklist.');
+            }
+        }
+
+        // Inicia o carregamento ao abrir a página
+        carregarChecklist();
+
+    </script>
+</body>
+</html>
