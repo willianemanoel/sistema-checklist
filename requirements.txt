@@ -1,5 +1,5 @@
 Flask
 Flask-SQLAlchemy
 Flask-CORS
-waitress  # Servidor de produção para o Render
-# Adicione outras libs que você usou (ex: pandas, etc.)
+waitress
+psycopg2-binary  # ESTA LINHA É ESSENCIAL
