@@ -47,7 +47,7 @@ db.init_app(app)
 # Senha: 'minhasenha123' (hash gerado por pbkdf2_sha256.hash("minhasenha123"))
 USUARIO_TESTE = {
     "username": "auditoria",
-    "password_hash": "$pbkdf2-sha256$29000$g43j3r2iG0N4HwGjC6v1gA$yG3n7I/NfH/9Z4e/2X6d1J4o5S/7vL/Q3jB5yA=" 
+    "password_hash": "$pbkdf2-sha256$29000$.j/HuJeScu4dY0xJidEaQw$AOydwozsEvwPgCTORrIOzup7Nj7.iLnXvva..N3zUQA"
 }
 
 # ----------------------------------------------------
