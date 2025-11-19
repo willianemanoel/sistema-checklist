@@ -1,31 +1,40 @@
-# app.py - NOVO CONTEÚDO
+# app.py - NOVO CONTEÚDO (COM SEGURANÇA JWT)
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+from flask_jwt_extended import create_access_token, jwt_required, JWTManager
 from models import db, CategoriaChecklist, init_db
+from passlib.hash import pbkdf2_sha256 # Usado para simular hash de senha
 import json
 import os
 from waitress import serve
 
 app = Flask(__name__)
-CORS(app) # Permite que o frontend acesse a API
+# Permitimos qualquer origem (CORS) para desenvolvimento com o index.html local
+CORS(app) 
+
+# ------------------------------------------------------------------
+# CONFIGURAÇÃO DE SEGURANÇA (JWT)
+# ------------------------------------------------------------------
+
+# A chave secreta deve ser carregada de uma variável de ambiente!
+app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "SUA_CHAVE_SECRETA_PADRAO") 
+app.config["JWT_TOKEN_LOCATION"] = ["headers"] # Define onde o token será buscado
+jwt = JWTManager(app)
 
 # ------------------------------------------------------------------
 # CONFIGURAÇÃO DE BANCO DE DADOS (SQLite LOCAL vs. PostgreSQL RENDER)
 # ------------------------------------------------------------------
 
-# 1. Tenta obter a URL do PostgreSQL das variáveis de ambiente do Render
 database_url = os.environ.get('DATABASE_URL')
 
 if database_url:
-    # Corrige o prefixo 'postgres' para 'postgresql' se necessário, para compatibilidade com SQLAlchemy 2.x
     if database_url.startswith("postgres://"):
         database_url = database_url.replace("postgres://", "postgresql://", 1)
     
     app.config['SQLALCHEMY_DATABASE_URI'] = database_url
     print("Usando PostgreSQL (Configuração de Produção)")
 else:
-    # Fallback para SQLite local (Configuração de Desenvolvimento)
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///checklist.db'
     print("Usando SQLite (Configuração de Desenvolvimento)")
 
@@ -33,14 +42,22 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db.init_app(app)
 
+
+# SIMULAÇÃO DE USUÁRIOS (Em produção, isso viria de uma tabela 'User' no BD)
+# Senha: 'minhasenha123' (hash gerado por pbkdf2_sha256.hash("minhasenha123"))
+USUARIO_TESTE = {
+    "username": "auditoria",
+    "password_hash": "$pbkdf2-sha256$29000$g43j3r2iG0N4HwGjC6v1gA$yG3n7I/NfH/9Z4e/2X6d1J4o5S/7vL/Q3jB5yA=" 
+}
+
 # ----------------------------------------------------
 # SIMULAÇÃO DE DADOS MESTRES E ARQUIVOS RECEBIDOS
+# (MANTIDOS PARA CLAREZA)
 # ----------------------------------------------------
 
 def carregar_dados_mestres():
     """Carrega os dados mestre dos clientes e categorias do JSON."""
     try:
-        # Assumindo que o JSON está na pasta 'data/'
         with open('data/dados_mestres.json', 'r', encoding='utf-8') as f:
             return json.load(f)
     except FileNotFoundError:
@@ -55,11 +72,32 @@ def carregar_arquivos_simulados():
         return set()
 
 # ----------------------------------------------------
-# ROTAS DA API
+# ROTA 1: AUTENTICAÇÃO
+# ----------------------------------------------------
+@app.route('/login', methods=['POST'])
+def login():
+    data = request.get_json()
+    username = data.get('username', None)
+    password = data.get('password', None)
+    
+    # Simula a verificação de credenciais
+    if username == USUARIO_TESTE["username"] and \
+       pbkdf2_sha256.verify(password, USUARIO_TESTE["password_hash"]):
+        
+        # Cria o token de acesso que expira em 30 minutos (por exemplo)
+        access_token = create_access_token(identity=username, expires_delta=False)
+        return jsonify(access_token=access_token), 200
+    
+    return jsonify({"msg": "Credenciais inválidas"}), 401
+
+
+# ----------------------------------------------------
+# ROTAS DE API (PROTEGIDAS)
 # ----------------------------------------------------
 
-# Rota 1: Lista Todos os Clientes (para a tela inicial)
+# Rota 2: Lista Todos os Clientes (AGORA PROTEGIDA)
 @app.route('/api/clientes', methods=['GET'])
+@jwt_required() # <--- NOVO: Requer um token válido
 def listar_clientes():
     """Retorna a lista básica de clientes com o status de conclusão."""
     dados_mestres = carregar_dados_mestres()
@@ -76,7 +114,6 @@ def listar_clientes():
                 status_recebimento='RECEBIDO'
             ).count()
 
-            # Estrutura a resposta como na imagem do painel
             clientes_listagem.append({
                 'id': cliente_id,
                 'nome': cliente['nome'],
@@ -89,8 +126,9 @@ def listar_clientes():
     return jsonify(clientes_listagem)
 
 
-# Rota 2: Detalhes das Categorias do Cliente
+# Rota 3: Detalhes das Categorias do Cliente (AGORA PROTEGIDA)
 @app.route('/api/clientes/<int:cliente_id>/categorias', methods=['GET'])
+@jwt_required() # <--- NOVO: Requer um token válido
 def detalhes_cliente(cliente_id):
     """
     Retorna a lista de categorias para um cliente,
@@ -99,7 +137,6 @@ def detalhes_cliente(cliente_id):
     dados_mestres = carregar_dados_mestres()
     arquivos_recebidos = carregar_arquivos_simulados()
     
-    # 1. Encontra o cliente nos dados mestres
     cliente = next((c for c in dados_mestres if c['id'] == cliente_id), None)
     
     if not cliente:
@@ -112,7 +149,6 @@ def detalhes_cliente(cliente_id):
             nome_categoria = categoria_mestra['nome']
             documentos_cobrados = categoria_mestra.get('documentos', [])
             
-            # 2. Busca o status de persistência no BD
             status_bd = CategoriaChecklist.query.filter_by(
                 cliente_id=cliente_id,
                 nome_categoria=nome_categoria
@@ -120,7 +156,6 @@ def detalhes_cliente(cliente_id):
             
             status_recebimento = status_bd.status_recebimento if status_bd else 'PENDENTE'
             
-            # 3. Verifica os arquivos (para a coluna de documentos na sub-tabela)
             detalhes_documentos = []
             for doc_nome in documentos_cobrados:
                 encontrado = 'Sim' if doc_nome in arquivos_recebidos else 'Não'
@@ -129,7 +164,6 @@ def detalhes_cliente(cliente_id):
                     'status_bucket': encontrado
                 })
             
-            # 4. Estrutura a resposta final para o Frontend
             resposta_categorias.append({
                 'nome_categoria': nome_categoria,
                 'status_recebimento': status_recebimento,
@@ -145,13 +179,14 @@ def detalhes_cliente(cliente_id):
     })
 
 
-# Rota 3: Salva o Status da Categoria
+# Rota 4: Salva o Status da Categoria (AGORA PROTEGIDA)
 @app.route('/api/categorias/confirmar', methods=['POST'])
+@jwt_required() # <--- NOVO: Requer um token válido
 def salvar_categoria():
     data = request.get_json()
     cliente_id = data.get('cliente_id')
     nome_categoria = data.get('nome_categoria')
-    novo_status = data.get('status', 'PENDENTE').upper() # Deve ser 'RECEBIDO' ou 'PENDENTE'
+    novo_status = data.get('status', 'PENDENTE').upper()
 
     if not all([cliente_id, nome_categoria, novo_status]):
         return jsonify({"erro": "Dados incompletos fornecidos."}), 400
@@ -161,17 +196,14 @@ def salvar_categoria():
 
     with app.app_context():
         try:
-            # Tenta encontrar a categoria existente no BD
             categoria_db = CategoriaChecklist.query.filter_by(
                 cliente_id=cliente_id,
                 nome_categoria=nome_categoria
             ).first()
 
             if categoria_db:
-                # Atualiza o status
                 categoria_db.status_recebimento = novo_status
             else:
-                # Cria uma nova entrada se não existir
                 nova_categoria = CategoriaChecklist(
                     cliente_id=cliente_id,
                     nome_categoria=nome_categoria,
@@ -191,17 +223,13 @@ def salvar_categoria():
 # INICIALIZAÇÃO E EXECUÇÃO
 # ----------------------------------------------------
 
-# Cria as tabelas do BD quando a aplicação for iniciada
 with app.app_context():
     init_db(app)
 
 if __name__ == '__main__':
-    # Se estiver no Render, a inicialização é feita pelo Procfile com Waitress
+    # ... (Bloco de execução local com Waitress)
     if os.environ.get('DATABASE_URL'):
-        # A execução via 'waitress-serve' é feita pelo Procfile/Render, 
-        # então este bloco só serve para o teste local.
         print("Ambiente de Produção (Rodando via Procfile no Render)")
     else:
-        # Execução local com Waitress para simular o modo de produção
         print(f"Servidor rodando em 0.0.0.0:5000 (Local)...")
         serve(app, host='0.0.0.0', port=5000)

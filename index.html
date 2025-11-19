@@ -10,6 +10,38 @@
         .container { padding: 20px; max-width: 1200px; margin: 0 auto; }
         h1 { text-align: center; color: #3498db; }
 
+        /* Estilos do Formulário de Login */
+        #login-screen { 
+            max-width: 400px; 
+            margin: 50px auto; 
+            padding: 30px; 
+            background-color: #34495e; 
+            border-radius: 8px; 
+            text-align: center;
+        }
+        #login-screen input[type="text"], #login-screen input[type="password"] {
+            width: 90%;
+            padding: 10px;
+            margin: 8px 0;
+            border: none;
+            border-radius: 4px;
+            box-sizing: border-box;
+            background-color: #496a8a;
+            color: #ecf0f1;
+        }
+        .btn { 
+            background-color: #3498db; 
+            color: white; 
+            padding: 10px 20px; 
+            border: none; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            transition: background-color 0.3s;
+            margin-top: 10px;
+        }
+        .btn:hover { background-color: #2980b9; }
+        #login-message { color: #e74c3c; margin-top: 10px; }
+
         /* Estilos dos Cards de Clientes */
         #cliente-listagem { display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; }
         .cliente-card { 
@@ -21,12 +53,8 @@
             transition: background-color 0.3s; 
             border-left: 5px solid #3498db;
         }
-        .cliente-card:hover { background-color: #496a8a; }
-        .cliente-card h2 { margin-top: 0; color: #ecf0f1; font-size: 1.4em; }
-        .cliente-card p { margin: 5px 0; font-size: 0.9em; }
-        .concluido { color: #2ecc71; font-weight: bold; }
-
-        /* Estilos do Detalhe do Cliente */
+        /* ... (CSS para Detalhe do Cliente, Categoria e Tabela de Documentos - MANTIDOS) */
+        
         #detalhe-cliente { display: none; }
         .categoria-item { 
             background-color: #34495e; 
@@ -46,27 +74,13 @@
         .categoria-status { font-weight: bold; }
         .status-pendente { color: #e74c3c; }
         .status-recebido { color: #2ecc71; }
-
-        /* Botões */
-        .btn { 
-            background-color: #3498db; 
-            color: white; 
-            padding: 8px 15px; 
-            border: none; 
-            border-radius: 4px; 
-            cursor: pointer; 
-            transition: background-color 0.3s;
-            margin-left: 10px;
-        }
-        .btn:hover { background-color: #2980b9; }
-
-        /* Tabela de Documentos */
+        
         .documentos-table { 
             width: 100%; 
             border-collapse: collapse; 
             margin-top: 10px; 
             background-color: #496a8a;
-            display: none; /* Inicia oculta */
+            display: none; 
         }
         .documentos-table th, .documentos-table td { padding: 8px; border: 1px solid #34495e; text-align: left; font-size: 0.9em; }
         .doc-sim { color: #2ecc71; }
@@ -78,7 +92,19 @@
     <div class="container">
         <h1 id="titulo-principal">Controle de Pendências FTP</h1>
 
-        <div id="tela-clientes">
+        <div id="login-screen">
+            <h2>Acesso Restrito</h2>
+            <p>Usuário de Teste: <code>auditoria</code> | Senha: <code>minhasenha123</code></p>
+            <form id="login-form">
+                <input type="text" id="username" placeholder="Usuário" required>
+                <input type="password" id="password" placeholder="Senha" required>
+                <button type="submit" class="btn">Entrar</button>
+            </form>
+            <p id="login-message"></p>
+        </div>
+
+        <div id="tela-clientes" style="display: none;">
+            <button class="btn" onclick="logout()" style="float: right;">Sair</button>
             <p style="text-align: center;">Selecione um cliente para visualizar e controlar os documentos pendentes</p>
             <div id="cliente-listagem">
                 <p id="loading-clientes">Carregando lista de clientes da API...</p>
@@ -91,22 +117,83 @@
             
             <h3>Categorias de Documentos</h3>
             <div id="lista-categorias">
-                </div>
+            </div>
         </div>
     </div>
 
     <script>
-        // CONFIGURAÇÃO DA API NA NUVEM
         const BASE_URL = 'https://sistema-checklist.onrender.com';
-        
         let clienteAtualId = null;
-        let clientesDataGlobal = []; // Para armazenar os dados dos clientes
+        let clientesDataGlobal = [];
+        let authToken = localStorage.getItem('authToken'); // Tenta buscar token do armazenamento local
+
+        // ---------------------------------------------
+        // FUNÇÕES DE SEGURANÇA E INICIALIZAÇÃO
+        // ---------------------------------------------
+        
+        // Função utilitária para incluir o token no cabeçalho
+        function getAuthHeaders() {
+            return {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            };
+        }
+
+        function checkAuth() {
+            if (authToken) {
+                mostrarTela('tela-clientes');
+                carregarClientes();
+            } else {
+                mostrarTela('login-screen');
+            }
+        }
+
+        function logout() {
+            localStorage.removeItem('authToken');
+            authToken = null;
+            checkAuth();
+            document.getElementById('login-message').innerText = 'Você foi desconectado.';
+        }
+
+        async function handleLogin(event) {
+            event.preventDefault();
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const messageElement = document.getElementById('login-message');
+            messageElement.innerText = 'Autenticando...';
+
+            try {
+                const response = await fetch(`${BASE_URL}/login`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    authToken = data.access_token;
+                    localStorage.setItem('authToken', authToken);
+                    messageElement.innerText = 'Login bem-sucedido!';
+                    checkAuth(); // Vai para a tela de clientes
+                } else {
+                    messageElement.innerText = data.msg || 'Falha na autenticação. Verifique usuário/senha.';
+                }
+            } catch (error) {
+                console.error('Erro de conexão ao tentar logar:', error);
+                messageElement.innerText = 'Erro de rede. Tente novamente mais tarde.';
+            }
+        }
+        
+        // Listener para o formulário de login
+        document.getElementById('login-form').addEventListener('submit', handleLogin);
 
         // ---------------------------------------------
         // FUNÇÕES DE NAVEGAÇÃO
         // ---------------------------------------------
 
         function mostrarTela(telaId) {
+            document.getElementById('login-screen').style.display = 'none';
             document.getElementById('tela-clientes').style.display = 'none';
             document.getElementById('detalhe-cliente').style.display = 'none';
             document.getElementById(telaId).style.display = 'block';
@@ -122,10 +209,25 @@
         // ROTA 1: CARREGAR CLIENTES PARA A TELA INICIAL
         // ---------------------------------------------
         async function carregarClientes() {
-            document.getElementById('loading-clientes').innerText = 'Carregando...';
+            const loadingElement = document.getElementById('loading-clientes');
+            if (loadingElement) {
+                loadingElement.innerText = 'Carregando...';
+            }
             
             try {
-                const response = await fetch(`${BASE_URL}/api/clientes`);
+                // TOKEN ENVIADO AQUI
+                const response = await fetch(`${BASE_URL}/api/clientes`, {
+                    method: 'GET',
+                    headers: getAuthHeaders() 
+                });
+                
+                if (response.status === 401) {
+                    // Se o token expirou ou é inválido, desloga
+                    alert("Sessão expirada. Faça login novamente.");
+                    logout();
+                    return;
+                }
+                
                 if (!response.ok) throw new Error('Falha ao carregar clientes');
                 
                 clientesDataGlobal = await response.json();
@@ -133,13 +235,16 @@
 
             } catch (error) {
                 console.error('Erro ao buscar clientes:', error);
-                document.getElementById('loading-clientes').innerText = 'Erro ao carregar clientes da nuvem.';
+                const loadingElement = document.getElementById('loading-clientes');
+                if (loadingElement) {
+                    loadingElement.innerText = 'Erro ao carregar clientes da nuvem.';
+                }
             }
         }
 
         function renderizarClientes(clientes) {
             const listagemDiv = document.getElementById('cliente-listagem');
-            listagemDiv.innerHTML = ''; // Limpa a lista
+            listagemDiv.innerHTML = ''; 
 
             clientes.forEach(cliente => {
                 const card = document.createElement('div');
@@ -158,7 +263,11 @@
                 `;
                 listagemDiv.appendChild(card);
             });
-            document.getElementById('loading-clientes').style.display = 'none';
+            
+            const loadingElement = document.getElementById('loading-clientes');
+            if (loadingElement) {
+                loadingElement.style.display = 'none';
+            }
         }
 
         // ---------------------------------------------
@@ -171,7 +280,18 @@
             document.getElementById('lista-categorias').innerHTML = ''; // Limpa a lista
 
             try {
-                const response = await fetch(`${BASE_URL}/api/clientes/${clienteId}/categorias`);
+                // TOKEN ENVIADO AQUI
+                const response = await fetch(`${BASE_URL}/api/clientes/${clienteId}/categorias`, {
+                    method: 'GET',
+                    headers: getAuthHeaders() 
+                });
+                
+                if (response.status === 401) {
+                    alert("Sessão expirada. Faça login novamente.");
+                    logout();
+                    return;
+                }
+
                 if (!response.ok) throw new Error('Falha ao carregar detalhes do cliente');
                 
                 const data = await response.json();
@@ -185,6 +305,7 @@
             }
         }
         
+        // ... (renderizarCategorias MANTIDA) ...
         function renderizarCategorias(categorias) {
             const listaDiv = document.getElementById('lista-categorias');
             listaDiv.innerHTML = '';
@@ -218,7 +339,7 @@
                 // Tabela de Documentos Oculta
                 const table = document.createElement('table');
                 table.className = 'documentos-table';
-                table.id = `table-${categoria.nome_categoria.replace(/\s/g, '-')}`;
+                table.id = `table-${categoria.nome_categoria.replace(/\s/g, '-')}`; 
                 table.innerHTML = `
                     <thead><tr><th>Documento Cobrado</th><th>Status no Bucket</th></tr></thead>
                     <tbody>${categoria.detalhes_documentos.map(doc => `
@@ -233,12 +354,11 @@
                 listaDiv.appendChild(table);
             });
         }
-
+        
         // ---------------------------------------------
         // FUNÇÕES DE INTERAÇÃO
         // ---------------------------------------------
         
-        // Função para mostrar/esconder a tabela de documentos
         function toggleDocumentos(element) {
             const nomeCategoria = element.dataset.categoriaNome;
             const tableId = `table-${nomeCategoria.replace(/\s/g, '-')}`;
@@ -247,15 +367,13 @@
             if (table.style.display === 'block') {
                 table.style.display = 'none';
             } else {
-                // Esconde todas as outras tabelas abertas
                 document.querySelectorAll('.documentos-table').forEach(t => t.style.display = 'none');
                 table.style.display = 'block';
             }
         }
 
-        // Função para chamar a Rota POST de salvamento
         async function marcarCategoria(event, nomeCategoria, marcarComoRecebido) {
-            event.stopPropagation(); // Previne que o clique dispare o toggleDocumentos
+            event.stopPropagation(); 
 
             const novoStatus = marcarComoRecebido ? 'RECEBIDO' : 'PENDENTE';
             
@@ -266,17 +384,23 @@
             };
 
             try {
+                // TOKEN ENVIADO AQUI
                 const response = await fetch(`${BASE_URL}/api/categorias/confirmar`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: getAuthHeaders(),
                     body: JSON.stringify(payload)
                 });
+                
+                if (response.status === 401) {
+                    alert("Sessão expirada. Faça login novamente.");
+                    logout();
+                    return;
+                }
                 
                 const resultado = await response.json();
                 
                 if (response.ok) {
                     alert(`Sucesso! Categoria '${nomeCategoria}' marcada como ${novoStatus}.`);
-                    // Recarrega os detalhes do cliente para refletir a nova contagem e status
                     carregarDetalhesCliente(clienteAtualId); 
                 } else {
                     alert(`Erro ao salvar: ${resultado.erro || 'Erro desconhecido.'}`);
@@ -288,8 +412,8 @@
             }
         }
 
-        // INICIA O FLUXO
-        carregarClientes();
+        // INICIA O FLUXO: verifica se o usuário já está logado
+        window.onload = checkAuth;
     </script>
 </body>
 </html>

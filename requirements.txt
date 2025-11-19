@@ -2,4 +2,6 @@ Flask
 Flask-SQLAlchemy
 Flask-CORS
 waitress
-psycopg2-binary  # ESTA LINHA É ESSENCIAL
+psycopg2-binary
+Flask-JWT-Extended  # NOVO
+passlib             # NOVO
