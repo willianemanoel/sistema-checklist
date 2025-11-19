@@ -53,7 +53,7 @@ USUARIO_TESTE = {
 # ----------------------------------------------------
 # SIMULAÇÃO DE DADOS MESTRES E ARQUIVOS RECEBIDOS
 # (MANTIDOS PARA CLAREZA)
-# ----------------------------------------------------
+# --------------------------------------------------
 
 def carregar_dados_mestres():
     """Carrega os dados mestre dos clientes e categorias do JSON."""
