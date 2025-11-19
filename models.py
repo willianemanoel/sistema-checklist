@@ -1,36 +1,52 @@
-# models.py - NOVO CONTEÚDO
+# models.py
+import json
+from datetime import datetime
+from app import db # Importamos a instância do db criada em app.py
+from sqlalchemy.orm import relationship, backref
 
-from flask_sqlalchemy import SQLAlchemy
-
-db = SQLAlchemy()
-
-# ----------------------------------------------------
-# Tabela para persistir o STATUS de cada CATEGORIA
-# ----------------------------------------------------
-class CategoriaChecklist(db.Model):
-    __tablename__ = 'categoria_checklist'
-    
+class Cliente(db.Model):
+    __tablename__ = 'clientes'
     id = db.Column(db.Integer, primary_key=True)
+    nome = db.Column(db.String(150), nullable=False)
+    grupo = db.Column(db.String(50), nullable=False)
+    segmento = db.Column(db.String(50), nullable=False)
     
-    # Chave para o Cliente (do JSON)
-    cliente_id = db.Column(db.Integer, nullable=False)
-    
-    # Nome da Categoria (do JSON)
-    nome_categoria = db.Column(db.String(255), nullable=False)
-    
-    # Status de Recebimento da Categoria
-    status_recebimento = db.Column(db.String(20), default='PENDENTE') # 'PENDENTE' ou 'RECEBIDO'
-    
-    # Garante que não haja duplicatas de CATEGORIA para o mesmo CLIENTE
-    __table_args__ = (
-        db.UniqueConstraint('cliente_id', 'nome_categoria', name='uc_cliente_categoria'),
-    )
+    # Relação com Categorias (lazy='dynamic' para consultas eficientes)
+    categorias = db.relationship('Categoria', backref='cliente', lazy='dynamic')
 
     def __repr__(self):
-        return f"<CategoriaChecklist {self.cliente_id} - {self.nome_categoria}: {self.status_recebimento}>"
+        return f'<Cliente {self.nome}>'
 
-# Funções de inicialização do banco de dados (serão chamadas pelo app.py)
-def init_db(app):
-    with app.app_context():
-        # Cria as tabelas se não existirem
-        db.create_all()
+class Categoria(db.Model):
+    __tablename__ = 'categorias'
+    id = db.Column(db.Integer, primary_key=True)
+    cliente_id = db.Column(db.Integer, db.ForeignKey('clientes.id'), nullable=False)
+    nome_categoria = db.Column(db.String(200), nullable=False)
+    status_recebimento = db.Column(db.String(10), default='PENDENTE', nullable=False)
+    
+    # Campo para armazenar os documentos como JSON string/Text
+    detalhes_documentos_json = db.Column(db.Text, nullable=True) 
+
+    # Coluna para registrar a última atualização
+    data_atualizacao = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Garante que não haja categorias duplicadas para o mesmo cliente
+    __table_args__ = (db.UniqueConstraint('cliente_id', 'nome_categoria', name='_cliente_categoria_uc'),)
+
+    def __repr__(self):
+        return f'<Categoria {self.nome_categoria} Status: {self.status_recebimento}>'
+
+# FUNÇÕES AUXILIARES PARA MANIPULAÇÃO DE DADOS JSON DENTRO DO MODELO
+
+def get_documentos(self):
+    """Obtém os detalhes dos documentos como objeto Python (lista de dicts)."""
+    if self.detalhes_documentos_json:
+        return json.loads(self.detalhes_documentos_json)
+    return []
+
+def set_documentos(self, doc_list):
+    """Define os detalhes dos documentos a partir de um objeto Python (lista de dicts)."""
+    self.detalhes_documentos_json = json.dumps(doc_list)
+
+# Cria a propriedade 'detalhes_documentos' para que possamos acessá-la como um objeto normal
+Categoria.detalhes_documentos = property(get_documentos, set_documentos)

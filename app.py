@@ -1,235 +1,207 @@
-# app.py - NOVO CONTEÚDO (COM SEGURANÇA JWT)
-
-from flask import Flask, request, jsonify
-from flask_cors import CORS
-from flask_jwt_extended import create_access_token, jwt_required, JWTManager
-from models import db, CategoriaChecklist, init_db
-from passlib.hash import pbkdf2_sha256 # Usado para simular hash de senha
-import json
 import os
-from waitress import serve
+import json
+from datetime import timedelta
+from flask import Flask, jsonify, request
+from flask_jwt_extended import create_access_token, jwt_required, JWTManager
+from passlib.hash import pbkdf2_sha256
+from flask_cors import CORS
+from flask_sqlalchemy import SQLAlchemy # NOVO: Importa o SQLAlchemy
 
+# Inicialização da Aplicação
 app = Flask(__name__)
-# Permitimos qualquer origem (CORS) para desenvolvimento com o index.html local
-CORS(app) 
+CORS(app) # Habilita CORS para todas as rotas
 
-# ------------------------------------------------------------------
-# CONFIGURAÇÃO DE SEGURANÇA (JWT)
-# ------------------------------------------------------------------
+# ---------------------------------------------
+# CONFIGURAÇÃO DE SEGURANÇA E BANCO DE DADOS
+# ---------------------------------------------
 
-# A chave secreta deve ser carregada de uma variável de ambiente!
-app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "SUA_CHAVE_SECRETA_PADRAO") 
-app.config["JWT_TOKEN_LOCATION"] = ["headers"] # Define onde o token será buscado
+# Chave Secreta para JWT (Lê da variável de ambiente no Render)
+app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", "SUA_CHAVE_SECRETA_PADRAO")
+app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(hours=1)
 jwt = JWTManager(app)
 
-# ------------------------------------------------------------------
-# CONFIGURAÇÃO DE BANCO DE DADOS (SQLite LOCAL vs. PostgreSQL RENDER)
-# ------------------------------------------------------------------
+# NOVO: Configuração do Banco de Dados PostgreSQL
+# Lê a DATABASE_URL da variável de ambiente no Render
+app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL")
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False 
 
-database_url = os.environ.get('DATABASE_URL')
+# Inicializa o SQLAlchemy
+db = SQLAlchemy(app)
 
-if database_url:
-    if database_url.startswith("postgres://"):
-        database_url = database_url.replace("postgres://", "postgresql://", 1)
-    
-    app.config['SQLALCHEMY_DATABASE_URI'] = database_url
-    print("Usando PostgreSQL (Configuração de Produção)")
-else:
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///checklist.db'
-    print("Usando SQLite (Configuração de Desenvolvimento)")
+# NOVO: Importa os modelos APÓS a inicialização do 'db'
+# A ordem aqui é importante: db precisa ser definido antes que models.py o importe.
+from models import Cliente, Categoria 
 
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-
-db.init_app(app)
-
-
-# SIMULAÇÃO DE USUÁRIOS (Em produção, isso viria de uma tabela 'User' no BD)
-# Senha: 'minhasenha123' (hash gerado por pbkdf2_sha256.hash("minhasenha123"))
+# SIMULAÇÃO DE USUÁRIOS (Senha de teste: '123456')
+# Este dicionário só é usado na rota /login para fins de autenticação.
 USUARIO_TESTE = {
     "username": "auditoria",
     "password_hash": "$pbkdf2-sha256$29000$.j/HuJeScu4dY0xJidEaQw$AOydwozsEvwPgCTORrIOzup7Nj7.iLnXvva..N3zUQA"
 }
 
-# ----------------------------------------------------
-# SIMULAÇÃO DE DADOS MESTRES E ARQUIVOS RECEBIDOS
-# (MANTIDOS PARA CLAREZA)
-# --------------------------------------------------
+# ---------------------------------------------
+# NOVO: FUNÇÃO DE INICIALIZAÇÃO DE BANCO DE DADOS
+# ---------------------------------------------
 
-def carregar_dados_mestres():
-    """Carrega os dados mestre dos clientes e categorias do JSON."""
-    try:
-        with open('data/dados_mestres.json', 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return []
+def inicializar_banco_de_dados():
+    """Cria as tabelas e popula com dados do JSON se o banco estiver vazio."""
+    with app.app_context():
+        # 1. Cria as tabelas (se elas já existirem, este comando ignora)
+        db.create_all()
+        
+        # 2. Verifica se o banco já está populado
+        if Cliente.query.count() == 0:
+            print(">>> Banco de dados vazio. Iniciando carga de dados mestres...")
+            
+            # Carregar dados do JSON (Ajuste o caminho se necessário)
+            try:
+                # O caminho deve ser ajustado para a raiz do seu Web Service
+                with open('data/dados_mestres.json', 'r', encoding='utf-8') as f:
+                    data_clientes = json.load(f)
+            except FileNotFoundError:
+                print("ERRO: Arquivo data/dados_mestres.json não encontrado. Verifique o caminho.")
+                return
 
-def carregar_arquivos_simulados():
-    """Carrega a lista de todos os arquivos simulados no 'bucket'."""
-    try:
-        with open('data/arquivos_simulados_gcs.json', 'r', encoding='utf-8') as f:
-            return set(json.load(f))
-    except FileNotFoundError:
-        return set()
+            for cliente_data in data_clientes:
+                # Cria o Cliente
+                novo_cliente = Cliente(
+                    nome=cliente_data['nome'],
+                    grupo=cliente_data['grupo'],
+                    segmento=cliente_data['segmento']
+                )
+                db.session.add(novo_cliente)
+                db.session.flush() # Obtém o ID do cliente antes de processar as categorias
 
-# ----------------------------------------------------
-# ROTA 1: AUTENTICAÇÃO
-# ----------------------------------------------------
-@app.route('/login', methods=['POST'])
+                # Cria as Categorias
+                for cat_data in cliente_data['categorias']:
+                    nova_categoria = Categoria(
+                        cliente_id=novo_cliente.id,
+                        nome_categoria=cat_data['nome_categoria'],
+                        status_recebimento=cat_data.get('status_recebimento', 'PENDENTE'),
+                        detalhes_documentos=cat_data['detalhes_documentos'] # O setter do models.py converte a lista em JSON string
+                    )
+                    db.session.add(nova_categoria)
+            
+            # Salva todas as alterações no banco de dados
+            db.session.commit()
+            print(">>> Carga de dados concluída com sucesso!")
+        else:
+            print(">>> Tabelas já existem e estão populadas. Pulando a carga inicial.")
+
+# Executa a função na inicialização do servidor
+inicializar_banco_de_dados()
+
+# ---------------------------------------------
+# ROTAS DA API
+# ---------------------------------------------
+
+@app.route("/login", methods=["POST"])
 def login():
     data = request.get_json()
-    username = data.get('username', None)
-    password = data.get('password', None)
-    
-    # Simula a verificação de credenciais
+    username = data.get("username")
+    password = data.get("password")
+
     if username == USUARIO_TESTE["username"] and \
        pbkdf2_sha256.verify(password, USUARIO_TESTE["password_hash"]):
         
-        # Cria o token de acesso que expira em 30 minutos (por exemplo)
-        access_token = create_access_token(identity=username, expires_delta=False)
-        return jsonify(access_token=access_token), 200
+        access_token = create_access_token(identity=username)
+        return jsonify(access_token=access_token)
+    else:
+        return jsonify({"msg": "Nome de usuário ou senha incorretos"}), 401
+
+
+# ROTA 1: LISTAR TODOS OS CLIENTES (Lendo do Banco de Dados)
+@app.route("/api/clientes", methods=["GET"])
+@jwt_required()
+def clientes():
+    # Consulta todos os clientes
+    todos_clientes = Cliente.query.all()
     
-    return jsonify({"msg": "Credenciais inválidas"}), 401
+    lista_clientes = []
+    for cliente in todos_clientes:
+        # Calcula o total de categorias e as concluídas usando a relação
+        total_categorias = cliente.categorias.count()
+        concluidas = cliente.categorias.filter_by(status_recebimento='RECEBIDO').count()
+        
+        lista_clientes.append({
+            "id": cliente.id,
+            "nome": cliente.nome,
+            "grupo": cliente.grupo,
+            "segmento": cliente.segmento,
+            "total_categorias": total_categorias,
+            "concluidas": concluidas
+        })
+        
+    return jsonify(lista_clientes)
 
 
-# ----------------------------------------------------
-# ROTAS DE API (PROTEGIDAS)
-# ----------------------------------------------------
-
-# Rota 2: Lista Todos os Clientes (AGORA PROTEGIDA)
-@app.route('/api/clientes', methods=['GET'])
-@jwt_required() # <--- NOVO: Requer um token válido
-def listar_clientes():
-    """Retorna a lista básica de clientes com o status de conclusão."""
-    dados_mestres = carregar_dados_mestres()
-    
-    clientes_listagem = []
-    with app.app_context():
-        for cliente in dados_mestres:
-            cliente_id = cliente['id']
-            total_categorias = len(cliente.get('categorias', []))
-            
-            # Conta quantas categorias estão marcadas como RECEBIDO
-            concluidas = CategoriaChecklist.query.filter_by(
-                cliente_id=cliente_id,
-                status_recebimento='RECEBIDO'
-            ).count()
-
-            clientes_listagem.append({
-                'id': cliente_id,
-                'nome': cliente['nome'],
-                'grupo': cliente.get('grupo', 'N/A'),
-                'segmento': cliente.get('segmento', 'N/A'),
-                'total_categorias': total_categorias,
-                'concluidas': concluidas
-            })
-            
-    return jsonify(clientes_listagem)
-
-
-# Rota 3: Detalhes das Categorias do Cliente (AGORA PROTEGIDA)
-@app.route('/api/clientes/<int:cliente_id>/categorias', methods=['GET'])
-@jwt_required() # <--- NOVO: Requer um token válido
+# ROTA 2: DETALHES DAS CATEGORIAS DO CLIENTE (Lendo do Banco de Dados)
+@app.route("/api/clientes/<int:cliente_id>/categorias", methods=["GET"])
+@jwt_required()
 def detalhes_cliente(cliente_id):
-    """
-    Retorna a lista de categorias para um cliente,
-    com status de recebimento e status de arquivos.
-    """
-    dados_mestres = carregar_dados_mestres()
-    arquivos_recebidos = carregar_arquivos_simulados()
-    
-    cliente = next((c for c in dados_mestres if c['id'] == cliente_id), None)
-    
+    cliente = Cliente.query.get(cliente_id)
+
     if not cliente:
         return jsonify({"erro": "Cliente não encontrado"}), 404
 
-    resposta_categorias = []
-    
-    with app.app_context():
-        for categoria_mestra in cliente.get('categorias', []):
-            nome_categoria = categoria_mestra['nome']
-            documentos_cobrados = categoria_mestra.get('documentos', [])
-            
-            status_bd = CategoriaChecklist.query.filter_by(
-                cliente_id=cliente_id,
-                nome_categoria=nome_categoria
-            ).first()
-            
-            status_recebimento = status_bd.status_recebimento if status_bd else 'PENDENTE'
-            
-            detalhes_documentos = []
-            for doc_nome in documentos_cobrados:
-                encontrado = 'Sim' if doc_nome in arquivos_recebidos else 'Não'
-                detalhes_documentos.append({
-                    'nome_documento': doc_nome,
-                    'status_bucket': encontrado
-                })
-            
-            resposta_categorias.append({
-                'nome_categoria': nome_categoria,
-                'status_recebimento': status_recebimento,
-                'total_documentos': len(documentos_cobrados),
-                'documentos_encontrados': len([d for d in detalhes_documentos if d['status_bucket'] == 'Sim']),
-                'detalhes_documentos': detalhes_documentos
-            })
-            
+    lista_categorias = []
+    # Busca categorias relacionadas ao cliente e ordena
+    for categoria in cliente.categorias.order_by(Categoria.nome_categoria).all():
+        documentos = categoria.detalhes_documentos # Chama o getter que retorna o objeto Python
+        
+        lista_categorias.append({
+            "nome_categoria": categoria.nome_categoria,
+            "status_recebimento": categoria.status_recebimento,
+            "total_documentos": len(documentos),
+            "documentos_encontrados": sum(1 for doc in documentos if doc['status_bucket'] == 'Sim'),
+            "detalhes_documentos": documentos 
+        })
+        
     return jsonify({
-        'cliente_id': cliente_id,
-        'cliente_nome': cliente['nome'],
-        'categorias': resposta_categorias
+        "cliente_nome": cliente.nome,
+        "categorias": lista_categorias
     })
 
 
-# Rota 4: Salva o Status da Categoria (AGORA PROTEGIDA)
-@app.route('/api/categorias/confirmar', methods=['POST'])
-@jwt_required() # <--- NOVO: Requer um token válido
-def salvar_categoria():
+# ROTA 3: CONFIRMAR RECEBIMENTO (Escrevendo no Banco de Dados)
+@app.route("/api/categorias/confirmar", methods=["POST"])
+@jwt_required()
+def confirmar_recebimento():
     data = request.get_json()
-    cliente_id = data.get('cliente_id')
-    nome_categoria = data.get('nome_categoria')
-    novo_status = data.get('status', 'PENDENTE').upper()
+    cliente_id = data.get("cliente_id")
+    nome_categoria = data.get("nome_categoria")
+    status = data.get("status")
 
-    if not all([cliente_id, nome_categoria, novo_status]):
-        return jsonify({"erro": "Dados incompletos fornecidos."}), 400
+    if not all([cliente_id, nome_categoria, status]):
+        return jsonify({"erro": "Dados insuficientes."}), 400
 
-    if novo_status not in ['RECEBIDO', 'PENDENTE']:
+    if status not in ['RECEBIDO', 'PENDENTE']:
         return jsonify({"erro": "Status inválido."}), 400
+    
+    try:
+        # 1. Busca a categoria no banco de dados usando o ID do Cliente e o Nome da Categoria
+        categoria = Categoria.query.filter_by(
+            cliente_id=cliente_id,
+            nome_categoria=nome_categoria
+        ).first()
 
-    with app.app_context():
-        try:
-            categoria_db = CategoriaChecklist.query.filter_by(
-                cliente_id=cliente_id,
-                nome_categoria=nome_categoria
-            ).first()
+        if not categoria:
+            return jsonify({"erro": "Categoria não encontrada para este cliente."}), 404
 
-            if categoria_db:
-                categoria_db.status_recebimento = novo_status
-            else:
-                nova_categoria = CategoriaChecklist(
-                    cliente_id=cliente_id,
-                    nome_categoria=nome_categoria,
-                    status_recebimento=novo_status
-                )
-                db.session.add(nova_categoria)
-            
-            db.session.commit()
-            return jsonify({"mensagem": f"Status da categoria '{nome_categoria}' atualizado para {novo_status}."})
+        # 2. Atualiza o status
+        categoria.status_recebimento = status
+        
+        # 3. Salva a mudança no banco de dados
+        db.session.commit()
+        
+        return jsonify({"mensagem": f"Status de '{nome_categoria}' atualizado para {status}."})
+        
+    except Exception as e:
+        # Desfaz qualquer transação em caso de erro
+        db.session.rollback() 
+        print(f"Erro ao atualizar status: {e}")
+        return jsonify({"erro": "Erro interno ao salvar no banco de dados."}), 500
 
-        except Exception as e:
-            db.session.rollback()
-            print(f"Erro ao salvar categoria: {e}")
-            return jsonify({"erro": "Erro interno ao salvar no banco de dados."}), 500
 
-# ----------------------------------------------------
-# INICIALIZAÇÃO E EXECUÇÃO
-# ----------------------------------------------------
-
-with app.app_context():
-    init_db(app)
-
-if __name__ == '__main__':
-    # ... (Bloco de execução local com Waitress)
-    if os.environ.get('DATABASE_URL'):
-        print("Ambiente de Produção (Rodando via Procfile no Render)")
-    else:
-        print(f"Servidor rodando em 0.0.0.0:5000 (Local)...")
-        serve(app, host='0.0.0.0', port=5000)
+if __name__ == "__main__":
+    app.run(debug=True)
