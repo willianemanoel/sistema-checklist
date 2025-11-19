@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+
+# Ambientes virtuais
+venv/
+
+# Banco de dados local
+*.db
+
+# Arquivos de log e cache
+.DS_Store
