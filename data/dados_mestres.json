@@ -1,23 +1,137 @@
 [
-  {
-    "id_cliente": 1,
-    "nome_cliente": "MERCADO VIOLETA LTDA",
-    "bucket_cliente": "arquivos-clientes/mercado_violeta", 
-    "documentos_cobranca": [
-      "09060-5_AplicAut.xls",
-      "10.2025_ExtratoBB_Loja 2_Aplic.pdf",
-      "10.2025_ExtratoBB_Loja 5_Aplic.pdf",
-      "11576-6_AplicAut.xls"
-    ]
-  },
-  {
-    "id_cliente": 2,
-    "nome_cliente": "INTERFRIOS COMERCIO DE FRIOS",
-    "bucket_cliente": "arquivos-clientes/interfrios",
-    "documentos_cobranca": [
-      "2502 - INTERFRIOS CSLL.pdf",
-      "25223-9_AplicAut.xls",
-      "98998-8_AplicAut.xls"
-    ]
-  }
+    {
+        "id": 1267,
+        "nome": "MERCADO VIOLETA (MATRIZ)",
+        "grupo": "VIOLETA",
+        "segmento": "Varejo",
+        "categorias": [
+            {
+                "nome": "EXTRATO APLICAÇÃO FINANCEIRA",
+                "documentos": [
+                    "09060-5_AplicAut.xls",
+                    "10.2025_ExtratoBB_Loja 2_Aplic.pdf",
+                    "10.2025_ExtratoBB_Loja 5_Aplic.pdf",
+                    "10.2025_ExtratoBB_Loja 6_Aplic.pdf",
+                    "10.2025_ExtratoBB_Loja 7_Aplic.pdf",
+                    "10.2025_Extrato_Bradesco_6779-2_Aplic.PDF",
+                    "10.2025_Extrato_Bradesco_6779-2_Aplic.XLS",
+                    "10.2025_Mercado Violeta 1.pdf",
+                    "10.2025_RelatorioDePerformance-008436331 (9).pdf",
+                    "11576-6_AplicAut.xls",
+                    "25223-9_AplicAut.xls",
+                    "29199-7_AplicAut.xls",
+                    "32099-4_AplicAut.xls",
+                    "32100-0_AplicAut.xls",
+                    "43179-1_AplicAut.xls",
+                    "53499-0_AplicAut.xls",
+                    "98998-8_AplicAut.xls"
+                ]
+            },
+            {
+                "nome": "EXTRATO BANCÁRIO",
+                "documentos": [
+                    "09060-5.xls",
+                    "10.2025_EXTRATO MERCADO VIOLETA LTDA_Original.pdf",
+                    "10.2025_ExtratoBB_ Loja 02.pdf",
+                    "10.2025_ExtratoBB_ Loja 05.pdf",
+                    "10.2025_ExtratoBB_ Loja 06.pdf",
+                    "10.2025_ExtratoBB_ Loja 07.pdf",
+                    "10.2025_Extrato_Bradesco_140206-4.pdf",
+                    "10.2025_Extrato_Bradesco_6779-2.PDF",
+                    "10.2025_Extrato_Bradesco_6779-2.XLS",
+                    "11576-6.xls",
+                    "25223-9.xls",
+                    "29199-7.xls",
+                    "32099-4.xls",
+                    "32100-0.xls",
+                    "43179-1.xls",
+                    "53499-0.xls",
+                    "98998-8.xls",
+                    "2502 - INTERFRIOS COMERCIO DE FRIOS - CSLL 2º TRIMESTRE.2025 - 3ª QUOTA.pdf - 134032804992862500 (1).pdf"
+                ]
+            },
+            {
+                "nome": "POSIÇÃO DOS ESTOQUES (INVENTÁRIO)",
+                "documentos": [
+                    "1267 - Posição dos estoque inventario.pdf"
+                ]
+            },
+            {
+                "nome": "COMPOSIÇÃO DE ALUGUEL",
+                "documentos": [
+                    "PLANILHA DE ALUGUEL - GRUPO VIOLETA.xlsx"
+                ]
+            },
+            {
+                "nome": "RESUMO GERAL DA FOLHA DE PAGAMENTO E PROVISÕES",
+                "documentos": []
+            },
+            {
+                "nome": "RELATÓRIO DO CAIXA",
+                "documentos": [
+                    "3411 - VARANDA FRUTAS E MERCEARIA - IRPJ 2º TRIMESTRE.2025 - 3ª QUOTA.pdf - 134032804993956250 (1).pdf"
+                ]
+            }
+        ]
+    },
+    {
+        "id": 1318,
+        "nome": "COM. DE ALIM. VIOLETA",
+        "grupo": "VIOLETA",
+        "segmento": "Varejo",
+        "categorias": [
+            {
+                "nome": "EXTRATO BANCÁRIO",
+                "documentos": [
+                    "10.2025_ExtratoBB_ Loja 03.pdf",
+                    "62570-7.xls"
+                ]
+            },
+            {
+                "nome": "EXTRATO APLICAÇÃO FINANCEIRA",
+                "documentos": [
+                    "10.2025_ExtratoBB_Loja 3_Aplic.pdf",
+                    "62570-7_AplicAut.xls"
+                ]
+            },
+            {
+                "nome": "RELATÓRIO DE CARTÕES",
+                "documentos": []
+            },
+            {
+                "nome": "RESUMO GERAL DA FOLHA DE PAGAMENTO E PROVISÕES",
+                "documentos": []
+            }
+        ]
+    },
+    {
+        "id": 1606,
+        "nome": "VIOLETA ITABERABA",
+        "grupo": "VIOLETA",
+        "segmento": "Varejo",
+        "categorias": [
+            {
+                "nome": "EXTRATO BANCÁRIO",
+                "documentos": [
+                    "10.2025_ExtratoBB_ Loja 04.pdf",
+                    "67295-6.xls"
+                ]
+            },
+            {
+                "nome": "EXTRATO APLICAÇÃO FINANCEIRA",
+                "documentos": [
+                    "10.2025_ExtratoBB_Loja 4_Aplic.pdf",
+                    "67295-6_AplicAut.xls"
+                ]
+            },
+            {
+                "nome": "RELATÓRIO DE CARTÕES",
+                "documentos": []
+            },
+            {
+                "nome": "RELATÓRIO DE RECEBIMENTOS",
+                "documentos": []
+            }
+        ]
+    }
 ]

@@ -1,180 +1,207 @@
-import os
+# app.py - NOVO CONTEÚDO
+
+from flask import Flask, request, jsonify
+from flask_cors import CORS
+from models import db, CategoriaChecklist, init_db
 import json
-from datetime import datetime
-from flask import Flask, jsonify, request
-from flask_cors import CORS 
-from models import db, Cliente, DocumentoChecklist 
-from waitress import serve # Servidor robusto para hospedagem em nuvem
+import os
+from waitress import serve
 
-# --- CONFIGURAÇÃO INICIAL DO FLASK ---
 app = Flask(__name__)
-CORS(app) 
+CORS(app) # Permite que o frontend acesse a API
 
-# Configuração do SQLite (cria um arquivo 'checklist.db' no projeto)
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///checklist.db'
+# ------------------------------------------------------------------
+# CONFIGURAÇÃO DE BANCO DE DADOS (SQLite LOCAL vs. PostgreSQL RENDER)
+# ------------------------------------------------------------------
+
+# 1. Tenta obter a URL do PostgreSQL das variáveis de ambiente do Render
+database_url = os.environ.get('DATABASE_URL')
+
+if database_url:
+    # Corrige o prefixo 'postgres' para 'postgresql' se necessário, para compatibilidade com SQLAlchemy 2.x
+    if database_url.startswith("postgres://"):
+        database_url = database_url.replace("postgres://", "postgresql://", 1)
+    
+    app.config['SQLALCHEMY_DATABASE_URI'] = database_url
+    print("Usando PostgreSQL (Configuração de Produção)")
+else:
+    # Fallback para SQLite local (Configuração de Desenvolvimento)
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///checklist.db'
+    print("Usando SQLite (Configuração de Desenvolvimento)")
+
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db.init_app(app)
 
-# Caminho para os arquivos mestres
-DADOS_MESTRES_PATH = 'data/dados_mestres.json'
-ARQUIVOS_SIMULADOS_GCS_PATH = 'data/arquivos_simulados_gcs.json'
-
-# --- FUNÇÕES DE UTILIDADE (SIMULANDO NUVEM) ---
+# ----------------------------------------------------
+# SIMULAÇÃO DE DADOS MESTRES E ARQUIVOS RECEBIDOS
+# ----------------------------------------------------
 
 def carregar_dados_mestres():
-    """Lê o arquivo JSON com a lista de documentos cobrados (para inicialização)."""
+    """Carrega os dados mestre dos clientes e categorias do JSON."""
     try:
-        with open(DADOS_MESTRES_PATH, 'r', encoding='utf-8') as f:
+        # Assumindo que o JSON está na pasta 'data/'
+        with open('data/dados_mestres.json', 'r', encoding='utf-8') as f:
             return json.load(f)
     except FileNotFoundError:
-        print(f"ERRO: Arquivo {DADOS_MESTRES_PATH} não encontrado.")
         return []
 
 def carregar_arquivos_simulados():
-    """Lê o arquivo JSON que simula o conteúdo do bucket GCS/S3."""
+    """Carrega a lista de todos os arquivos simulados no 'bucket'."""
     try:
-        with open(ARQUIVOS_SIMULADOS_GCS_PATH, 'r', encoding='utf-8') as f:
-            return json.load(f)
+        with open('data/arquivos_simulados_gcs.json', 'r', encoding='utf-8') as f:
+            return set(json.load(f))
     except FileNotFoundError:
-        print(f"ERRO: Arquivo {ARQUIVOS_SIMULADOS_GCS_PATH} não encontrado.")
-        return {}
+        return set()
 
-def listar_arquivos_na_pasta_do_cliente(bucket_cliente):
-    """
-    SIMULAÇÃO DE NUVEM: Retorna a lista de arquivos lendo o JSON de simulação, 
-    em vez de ler o disco local.
-    """
-    arquivos_simulados = carregar_arquivos_simulados()
-    # Retorna a lista de arquivos para a chave do bucket_cliente (ou lista vazia se não existir)
-    return arquivos_simulados.get(bucket_cliente, [])
+# ----------------------------------------------------
+# ROTAS DA API
+# ----------------------------------------------------
 
-# --- ROTA GET: TRAZ A COMPARAÇÃO ---
-@app.route('/api/clientes/<int:cliente_id>/comparacao', methods=['GET'])
-def get_comparacao_documentos(cliente_id):
-    """
-    Endpoint que o Frontend chama para exibir o checklist.
-    Combina dados do BD (status) e simulação de leitura de bucket (existência do arquivo).
-    """
-    with app.app_context():
-        cliente = Cliente.query.get_or_404(cliente_id)
-        documentos_cobrados = DocumentoChecklist.query.filter_by(cliente_id=cliente_id).all()
-        
-        # Pega a chave de busca (nome do bucket/prefixo) a partir do BD
-        bucket_cliente = cliente.nome_pasta_simulada # Usamos o campo existente como bucket_cliente
-        arquivos_existentes = listar_arquivos_na_pasta_do_cliente(bucket_cliente)
-        
-        resultado_comparacao = []
-        
-        for doc in documentos_cobrados:
-            # Lógica de Comparação: verifica se o nome cobrado está em algum arquivo existente
-            encontrado = any(doc.nome_cobrado.lower() in arq.lower() for arq in arquivos_existentes)
-            
-            resultado_comparacao.append({
-                'id': doc.id,
-                'nome_cobrado': doc.nome_cobrado,
-                'status_atual': doc.status,
-                'encontrado_na_pasta': 'Sim' if encontrado else 'Não',
-            })
-
-        return jsonify({
-            'cliente_id': cliente.id,
-            'cliente_nome': cliente.nome,
-            'comparacao': resultado_comparacao
-        })
-
-# --- ROTA POST: RECEBE E SALVA O CHECKLIST ---
-@app.route('/api/checklist/confirmar', methods=['POST'])
-def confirmar_checklist():
-    """
-    Recebe os dados do checklist do Frontend e atualiza o status no banco de dados.
-    """
-    try:
-        dados = request.get_json()
-        cliente_id = dados.get('cliente_id')
-        documentos_atualizados = dados.get('documentos', [])
-        
-        if not cliente_id or not documentos_atualizados:
-            return jsonify({"erro": "Dados incompletos"}), 400
-
-        # Simulação: Pegue o usuário de um sistema de autenticação real
-        usuario = "usuario_nuvem" 
-        data_atual = datetime.now()
-
-        with app.app_context():
-            for item in documentos_atualizados:
-                doc_id = item['id'] 
-                novo_status = item['status']
-                
-                doc = DocumentoChecklist.query.get(doc_id)
-                
-                if doc:
-                    doc.status = novo_status
-                    
-                    if novo_status == 'RECEBIDO':
-                        doc.data_confirmacao = data_atual
-                        doc.usuario_confirmador = usuario
-                    else:
-                        doc.data_confirmacao = None
-                        doc.usuario_confirmador = None
-
-            db.session.commit()
-            
-        return jsonify({"mensagem": f"Checklist do cliente {cliente_id} salvo com sucesso."}), 200
-
-    except Exception as e:
-        db.session.rollback()
-        print(f"Erro ao salvar checklist: {e}")
-        return jsonify({"erro": "Erro interno do servidor ao salvar."}), 500
-
-# --- FUNÇÃO DE INSERÇÃO DE DADOS INICIAIS ---
-def init_db():
-    """Cria tabelas e insere os dados iniciais do dados_mestres.json no BD."""
+# Rota 1: Lista Todos os Clientes (para a tela inicial)
+@app.route('/api/clientes', methods=['GET'])
+def listar_clientes():
+    """Retorna a lista básica de clientes com o status de conclusão."""
     dados_mestres = carregar_dados_mestres()
     
-    for c_data in dados_mestres:
-        # 1. Cria ou pega o Cliente
-        cliente = Cliente.query.filter_by(id=c_data['id_cliente']).first()
-        if not cliente:
-            cliente = Cliente(
-                id=c_data['id_cliente'],
-                nome=c_data['nome_cliente'],
-                # Usamos o campo existente para guardar a chave do bucket
-                nome_pasta_simulada=c_data['bucket_cliente']
-            )
-            db.session.add(cliente)
-            db.session.commit()
-
-        # 2. Insere os Documentos
-        for doc_nome in c_data['documentos_cobranca']:
-            doc = DocumentoChecklist.query.filter_by(
-                cliente_id=cliente.id, 
-                nome_cobrado=doc_nome
-            ).first()
-            if not doc:
-                novo_doc = DocumentoChecklist(
-                    nome_cobrado=doc_nome,
-                    cliente_id=cliente.id
-                )
-                db.session.add(novo_doc)
-    
-    db.session.commit()
-    print("Banco de dados inicializado com sucesso e dados mestres carregados.")
-
-
-# --- INICIALIZAÇÃO DO SERVIDOR ---
-if __name__ == '__main__':
+    clientes_listagem = []
     with app.app_context():
-        # Cria as tabelas do BD e carrega os dados mestres
-        db.create_all() 
-        init_db()
-    
-    # Define a porta a ser usada pelo Render (ambiente de produção) ou 5000 (local)
-    port = int(os.environ.get('PORT', 5000))
+        for cliente in dados_mestres:
+            cliente_id = cliente['id']
+            total_categorias = len(cliente.get('categorias', []))
+            
+            # Conta quantas categorias estão marcadas como RECEBIDO
+            concluidas = CategoriaChecklist.query.filter_by(
+                cliente_id=cliente_id,
+                status_recebimento='RECEBIDO'
+            ).count()
 
-    # Para testes locais, use app.run(debug=True)
-    # Para implantação (Render/Nuvem), use o Waitress:
-    print(f"Servidor rodando em 0.0.0.0:{port}...")
-    serve(app, host='0.0.0.0', port=port)
-    # Se quiser rodar localmente sem Waitress, comente a linha acima e descomente a abaixo:
-    # app.run(debug=True)
+            # Estrutura a resposta como na imagem do painel
+            clientes_listagem.append({
+                'id': cliente_id,
+                'nome': cliente['nome'],
+                'grupo': cliente.get('grupo', 'N/A'),
+                'segmento': cliente.get('segmento', 'N/A'),
+                'total_categorias': total_categorias,
+                'concluidas': concluidas
+            })
+            
+    return jsonify(clientes_listagem)
+
+
+# Rota 2: Detalhes das Categorias do Cliente
+@app.route('/api/clientes/<int:cliente_id>/categorias', methods=['GET'])
+def detalhes_cliente(cliente_id):
+    """
+    Retorna a lista de categorias para um cliente,
+    com status de recebimento e status de arquivos.
+    """
+    dados_mestres = carregar_dados_mestres()
+    arquivos_recebidos = carregar_arquivos_simulados()
+    
+    # 1. Encontra o cliente nos dados mestres
+    cliente = next((c for c in dados_mestres if c['id'] == cliente_id), None)
+    
+    if not cliente:
+        return jsonify({"erro": "Cliente não encontrado"}), 404
+
+    resposta_categorias = []
+    
+    with app.app_context():
+        for categoria_mestra in cliente.get('categorias', []):
+            nome_categoria = categoria_mestra['nome']
+            documentos_cobrados = categoria_mestra.get('documentos', [])
+            
+            # 2. Busca o status de persistência no BD
+            status_bd = CategoriaChecklist.query.filter_by(
+                cliente_id=cliente_id,
+                nome_categoria=nome_categoria
+            ).first()
+            
+            status_recebimento = status_bd.status_recebimento if status_bd else 'PENDENTE'
+            
+            # 3. Verifica os arquivos (para a coluna de documentos na sub-tabela)
+            detalhes_documentos = []
+            for doc_nome in documentos_cobrados:
+                encontrado = 'Sim' if doc_nome in arquivos_recebidos else 'Não'
+                detalhes_documentos.append({
+                    'nome_documento': doc_nome,
+                    'status_bucket': encontrado
+                })
+            
+            # 4. Estrutura a resposta final para o Frontend
+            resposta_categorias.append({
+                'nome_categoria': nome_categoria,
+                'status_recebimento': status_recebimento,
+                'total_documentos': len(documentos_cobrados),
+                'documentos_encontrados': len([d for d in detalhes_documentos if d['status_bucket'] == 'Sim']),
+                'detalhes_documentos': detalhes_documentos
+            })
+            
+    return jsonify({
+        'cliente_id': cliente_id,
+        'cliente_nome': cliente['nome'],
+        'categorias': resposta_categorias
+    })
+
+
+# Rota 3: Salva o Status da Categoria
+@app.route('/api/categorias/confirmar', methods=['POST'])
+def salvar_categoria():
+    data = request.get_json()
+    cliente_id = data.get('cliente_id')
+    nome_categoria = data.get('nome_categoria')
+    novo_status = data.get('status', 'PENDENTE').upper() # Deve ser 'RECEBIDO' ou 'PENDENTE'
+
+    if not all([cliente_id, nome_categoria, novo_status]):
+        return jsonify({"erro": "Dados incompletos fornecidos."}), 400
+
+    if novo_status not in ['RECEBIDO', 'PENDENTE']:
+        return jsonify({"erro": "Status inválido."}), 400
+
+    with app.app_context():
+        try:
+            # Tenta encontrar a categoria existente no BD
+            categoria_db = CategoriaChecklist.query.filter_by(
+                cliente_id=cliente_id,
+                nome_categoria=nome_categoria
+            ).first()
+
+            if categoria_db:
+                # Atualiza o status
+                categoria_db.status_recebimento = novo_status
+            else:
+                # Cria uma nova entrada se não existir
+                nova_categoria = CategoriaChecklist(
+                    cliente_id=cliente_id,
+                    nome_categoria=nome_categoria,
+                    status_recebimento=novo_status
+                )
+                db.session.add(nova_categoria)
+            
+            db.session.commit()
+            return jsonify({"mensagem": f"Status da categoria '{nome_categoria}' atualizado para {novo_status}."})
+
+        except Exception as e:
+            db.session.rollback()
+            print(f"Erro ao salvar categoria: {e}")
+            return jsonify({"erro": "Erro interno ao salvar no banco de dados."}), 500
+
+# ----------------------------------------------------
+# INICIALIZAÇÃO E EXECUÇÃO
+# ----------------------------------------------------
+
+# Cria as tabelas do BD quando a aplicação for iniciada
+with app.app_context():
+    init_db(app)
+
+if __name__ == '__main__':
+    # Se estiver no Render, a inicialização é feita pelo Procfile com Waitress
+    if os.environ.get('DATABASE_URL'):
+        # A execução via 'waitress-serve' é feita pelo Procfile/Render, 
+        # então este bloco só serve para o teste local.
+        print("Ambiente de Produção (Rodando via Procfile no Render)")
+    else:
+        # Execução local com Waitress para simular o modo de produção
+        print(f"Servidor rodando em 0.0.0.0:5000 (Local)...")
+        serve(app, host='0.0.0.0', port=5000)

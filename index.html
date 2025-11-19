@@ -3,183 +3,293 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sistema Checklist Documentos (CLOUD)</title>
+    <title>Controle de Pendências por Categoria (Cloud)</title>
     <style>
-        /* CSS BÁSICO PARA VISUALIZAÇÃO */
-        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f4f4f4; }
-        .container { background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-        h1 { color: #333; }
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-        th, td { padding: 12px; border: 1px solid #ddd; text-align: left; }
-        th { background-color: #007bff; color: white; }
-        .status-nao { background-color: #ffdddd; }
-        .status-recebido { background-color: #ddffdd; }
-        .btn-salvar { background-color: #28a745; color: white; padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; margin-top: 20px; }
+        /* CSS BÁSICO para a nova interface de categorias */
+        body { font-family: 'Arial', sans-serif; margin: 0; background-color: #2c3e50; color: #ecf0f1; }
+        .container { padding: 20px; max-width: 1200px; margin: 0 auto; }
+        h1 { text-align: center; color: #3498db; }
+
+        /* Estilos dos Cards de Clientes */
+        #cliente-listagem { display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; }
+        .cliente-card { 
+            background-color: #34495e; 
+            padding: 20px; 
+            border-radius: 8px; 
+            width: 300px; 
+            cursor: pointer; 
+            transition: background-color 0.3s; 
+            border-left: 5px solid #3498db;
+        }
+        .cliente-card:hover { background-color: #496a8a; }
+        .cliente-card h2 { margin-top: 0; color: #ecf0f1; font-size: 1.4em; }
+        .cliente-card p { margin: 5px 0; font-size: 0.9em; }
+        .concluido { color: #2ecc71; font-weight: bold; }
+
+        /* Estilos do Detalhe do Cliente */
+        #detalhe-cliente { display: none; }
+        .categoria-item { 
+            background-color: #34495e; 
+            padding: 15px; 
+            border-radius: 5px; 
+            margin-bottom: 10px; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            transition: background-color 0.3s;
+        }
+        .categoria-item:hover { background-color: #496a8a; }
+        .categoria-pendente { border-left: 5px solid #e74c3c; }
+        .categoria-recebido { border-left: 5px solid #2ecc71; }
+        .categoria-info { flex-grow: 1; cursor: pointer; }
+        
+        .categoria-status { font-weight: bold; }
+        .status-pendente { color: #e74c3c; }
+        .status-recebido { color: #2ecc71; }
+
+        /* Botões */
+        .btn { 
+            background-color: #3498db; 
+            color: white; 
+            padding: 8px 15px; 
+            border: none; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            transition: background-color 0.3s;
+            margin-left: 10px;
+        }
+        .btn:hover { background-color: #2980b9; }
+
+        /* Tabela de Documentos */
+        .documentos-table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin-top: 10px; 
+            background-color: #496a8a;
+            display: none; /* Inicia oculta */
+        }
+        .documentos-table th, .documentos-table td { padding: 8px; border: 1px solid #34495e; text-align: left; font-size: 0.9em; }
+        .doc-sim { color: #2ecc71; }
+        .doc-nao { color: #e74c3c; }
     </style>
 </head>
 <body>
 
     <div class="container">
-        <h1 id="titulo-cliente">Carregando Checklist do Servidor Cloud...</h1>
-        <p id="loading-status"></p>
-        
-        <table id="checklist-table">
-            <thead>
-                <tr>
-                    <th>Documento Cobrado</th>
-                    <th>Status no Bucket (S3/GCS)</th>
-                    <th>Status Recebimento</th>
-                    <th>Ação (Marcar)</th>
-                </tr>
-            </thead>
-            <tbody>
-                </tbody>
-        </table>
-        
-        <button class="btn-salvar" onclick="salvarChecklist()">Salvar Confirmação</button>
+        <h1 id="titulo-principal">Controle de Pendências FTP</h1>
+
+        <div id="tela-clientes">
+            <p style="text-align: center;">Selecione um cliente para visualizar e controlar os documentos pendentes</p>
+            <div id="cliente-listagem">
+                <p id="loading-clientes">Carregando lista de clientes da API...</p>
+            </div>
+        </div>
+
+        <div id="detalhe-cliente">
+            <button class="btn" onclick="voltarParaClientes()">← Voltar</button>
+            <h2 id="cliente-detalhe-nome" style="color: #2ecc71;"></h2>
+            
+            <h3>Categorias de Documentos</h3>
+            <div id="lista-categorias">
+                </div>
+        </div>
     </div>
 
     <script>
-        // --- CONFIGURAÇÃO CHAVE PARA A NUVEM ---
-        const BASE_URL = 'https://sistema-checklist.onrender.com'; 
-        const CLIENTE_ID = 1; // ID do cliente que queremos carregar (MERCADO VIOLETA)
+        // CONFIGURAÇÃO DA API NA NUVEM
+        const BASE_URL = 'https://sistema-checklist.onrender.com';
         
-        let clienteData = { id: CLIENTE_ID, nome: '' }; // Objeto para guardar dados do cliente
-        
-        const API_GET_URL = `${BASE_URL}/api/clientes/${CLIENTE_ID}/comparacao`;
-        const API_POST_URL = `${BASE_URL}/api/checklist/confirmar`;
-
+        let clienteAtualId = null;
+        let clientesDataGlobal = []; // Para armazenar os dados dos clientes
 
         // ---------------------------------------------
-        // FUNÇÃO PRINCIPAL: CARREGAR DADOS DA API
+        // FUNÇÕES DE NAVEGAÇÃO
         // ---------------------------------------------
-        async function carregarChecklist() {
-            document.getElementById('loading-status').innerText = 'Conectando ao Backend na nuvem...';
+
+        function mostrarTela(telaId) {
+            document.getElementById('tela-clientes').style.display = 'none';
+            document.getElementById('detalhe-cliente').style.display = 'none';
+            document.getElementById(telaId).style.display = 'block';
+        }
+
+        function voltarParaClientes() {
+            clienteAtualId = null;
+            carregarClientes();
+            mostrarTela('tela-clientes');
+        }
+
+        // ---------------------------------------------
+        // ROTA 1: CARREGAR CLIENTES PARA A TELA INICIAL
+        // ---------------------------------------------
+        async function carregarClientes() {
+            document.getElementById('loading-clientes').innerText = 'Carregando...';
             
             try {
-                const response = await fetch(API_GET_URL);
+                const response = await fetch(`${BASE_URL}/api/clientes`);
+                if (!response.ok) throw new Error('Falha ao carregar clientes');
                 
-                // Trata erros de conexão antes de tentar ler o JSON
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`Erro HTTP: ${response.status} - ${errorText}`);
-                }
+                clientesDataGlobal = await response.json();
+                renderizarClientes(clientesDataGlobal);
 
-                const data = await response.json();
-                
-                clienteData.nome = data.cliente_nome;
-                
-                document.getElementById('titulo-cliente').innerText = `Checklist para: ${data.cliente_nome} (via Render)`;
-                document.getElementById('loading-status').innerText = '';
-
-                renderizarTabela(data.comparacao);
             } catch (error) {
-                console.error('Erro ao buscar dados da API:', error);
-                document.getElementById('loading-status').innerText = `Erro ao carregar dados. Verifique o console. Detalhe: ${error.message}`;
+                console.error('Erro ao buscar clientes:', error);
+                document.getElementById('loading-clientes').innerText = 'Erro ao carregar clientes da nuvem.';
             }
         }
 
-        // ---------------------------------------------
-        // FUNÇÃO: RENDERIZAR A INTERFACE
-        // ---------------------------------------------
-        function renderizarTabela(comparacao) {
-            const tbody = document.querySelector('#checklist-table tbody');
-            tbody.innerHTML = ''; // Limpa a tabela
+        function renderizarClientes(clientes) {
+            const listagemDiv = document.getElementById('cliente-listagem');
+            listagemDiv.innerHTML = ''; // Limpa a lista
 
-            comparacao.forEach(item => {
-                const row = tbody.insertRow();
-                
-                // Aplica classes de cor conforme o status
-                if (item.encontrado_na_pasta === 'Não') {
-                    row.classList.add('status-nao');
-                }
-                if (item.status_atual === 'RECEBIDO') {
-                    row.classList.add('status-recebido');
-                }
-                
-                // Coluna 1: Nome Cobrado
-                row.insertCell().textContent = item.nome_cobrado;
-                
-                // Coluna 2: Status no Bucket
-                row.insertCell().textContent = item.encontrado_na_pasta;
-                
-                // Coluna 3: Status Recebimento (Valor inicial do BD)
-                const statusCell = row.insertCell();
-                statusCell.textContent = item.status_atual;
-                statusCell.dataset.docId = item.id; // Guarda o ID do documento do BD
-                
-                // Coluna 4: Checkbox de Ação
-                const acaoCell = row.insertCell();
-                const checkbox = document.createElement('input');
-                checkbox.type = 'checkbox';
-                checkbox.checked = (item.status_atual === 'RECEBIDO');
-                
-                // Evento para atualizar o status e cor localmente
-                checkbox.addEventListener('change', (e) => {
-                    const novoStatus = e.target.checked ? 'RECEBIDO' : 'PENDENTE';
-                    statusCell.textContent = novoStatus;
+            clientes.forEach(cliente => {
+                const card = document.createElement('div');
+                card.className = 'cliente-card';
+                card.onclick = () => carregarDetalhesCliente(cliente.id);
 
-                    // Atualiza a cor da linha
-                    row.classList.remove('status-recebido');
-                    if (novoStatus === 'RECEBIDO') {
-                        row.classList.add('status-recebido');
-                    }
-                });
+                const concluidoText = `Concluídas: ${cliente.concluidas}`;
+                const pendentesText = `Pendentes: ${cliente.total_categorias - cliente.concluidas}`;
+
+                card.innerHTML = `
+                    <h2>${cliente.nome}</h2>
+                    <p>ID: ${cliente.id} | Grupo: ${cliente.grupo}</p>
+                    <p>Segmento: ${cliente.segmento}</p>
+                    <p>Categorias: ${cliente.total_categorias} | <span class="concluido">${concluidoText}</span></p>
+                    <p>${pendentesText}</p>
+                `;
+                listagemDiv.appendChild(card);
+            });
+            document.getElementById('loading-clientes').style.display = 'none';
+        }
+
+        // ---------------------------------------------
+        // ROTA 2: CARREGAR DETALHES DAS CATEGORIAS
+        // ---------------------------------------------
+        async function carregarDetalhesCliente(clienteId) {
+            clienteAtualId = clienteId;
+            mostrarTela('detalhe-cliente');
+            document.getElementById('cliente-detalhe-nome').innerText = 'Carregando detalhes...';
+            document.getElementById('lista-categorias').innerHTML = ''; // Limpa a lista
+
+            try {
+                const response = await fetch(`${BASE_URL}/api/clientes/${clienteId}/categorias`);
+                if (!response.ok) throw new Error('Falha ao carregar detalhes do cliente');
                 
-                acaoCell.appendChild(checkbox);
+                const data = await response.json();
+                
+                document.getElementById('cliente-detalhe-nome').innerText = data.cliente_nome;
+                renderizarCategorias(data.categorias);
+
+            } catch (error) {
+                console.error('Erro ao buscar categorias:', error);
+                document.getElementById('lista-categorias').innerHTML = '<p style="color: red;">Erro ao carregar categorias da API.</p>';
+            }
+        }
+        
+        function renderizarCategorias(categorias) {
+            const listaDiv = document.getElementById('lista-categorias');
+            listaDiv.innerHTML = '';
+            
+            categorias.forEach(categoria => {
+                const isRecebido = categoria.status_recebimento === 'RECEBIDO';
+                const totalDocs = categoria.total_documentos;
+                const docsEncontrados = categoria.documentos_encontrados;
+                
+                const itemDiv = document.createElement('div');
+                itemDiv.className = `categoria-item ${isRecebido ? 'categoria-recebido' : 'categoria-pendente'}`;
+
+                // Conteúdo Principal
+                itemDiv.innerHTML = `
+                    <div class="categoria-info" data-categoria-nome="${categoria.nome_categoria}" onclick="toggleDocumentos(this)">
+                        <strong>${categoria.nome_categoria}</strong>
+                        <p style="margin: 3px 0; font-size: 0.8em;">
+                            Documentos: ${totalDocs} | Encontrados: ${docsEncontrados}
+                        </p>
+                        <p class="categoria-status ${isRecebido ? 'status-recebido' : 'status-pendente'}">
+                            Status: ${categoria.status_recebimento}
+                        </p>
+                    </div>
+                    <div>
+                        <button class="btn" onclick="marcarCategoria(event, '${categoria.nome_categoria}', ${isRecebido ? 'false' : 'true'})">
+                            ${isRecebido ? 'Reverter para PENDENTE' : 'Marcar como RECEBIDO'}
+                        </button>
+                    </div>
+                `;
+                
+                // Tabela de Documentos Oculta
+                const table = document.createElement('table');
+                table.className = 'documentos-table';
+                table.id = `table-${categoria.nome_categoria.replace(/\s/g, '-')}`;
+                table.innerHTML = `
+                    <thead><tr><th>Documento Cobrado</th><th>Status no Bucket</th></tr></thead>
+                    <tbody>${categoria.detalhes_documentos.map(doc => `
+                        <tr>
+                            <td>${doc.nome_documento}</td>
+                            <td class="${doc.status_bucket === 'Sim' ? 'doc-sim' : 'doc-nao'}">${doc.status_bucket}</td>
+                        </tr>
+                    `).join('')}</tbody>
+                `;
+                
+                listaDiv.appendChild(itemDiv);
+                listaDiv.appendChild(table);
             });
         }
 
         // ---------------------------------------------
-        // FUNÇÃO: SALVAR CHECKLIST (API POST)
+        // FUNÇÕES DE INTERAÇÃO
         // ---------------------------------------------
-        async function salvarChecklist() {
-            const linhas = document.querySelectorAll('#checklist-table tbody tr');
-            const dadosParaSalvar = [];
+        
+        // Função para mostrar/esconder a tabela de documentos
+        function toggleDocumentos(element) {
+            const nomeCategoria = element.dataset.categoriaNome;
+            const tableId = `table-${nomeCategoria.replace(/\s/g, '-')}`;
+            const table = document.getElementById(tableId);
             
-            linhas.forEach(linha => {
-                const statusFinal = linha.cells[2].textContent;
-                const docId = linha.cells[2].dataset.docId; // Pega o ID do BD
-                
-                dadosParaSalvar.push({
-                    id: docId,
-                    status: statusFinal
-                });
-            });
+            if (table.style.display === 'block') {
+                table.style.display = 'none';
+            } else {
+                // Esconde todas as outras tabelas abertas
+                document.querySelectorAll('.documentos-table').forEach(t => t.style.display = 'none');
+                table.style.display = 'block';
+            }
+        }
+
+        // Função para chamar a Rota POST de salvamento
+        async function marcarCategoria(event, nomeCategoria, marcarComoRecebido) {
+            event.stopPropagation(); // Previne que o clique dispare o toggleDocumentos
+
+            const novoStatus = marcarComoRecebido ? 'RECEBIDO' : 'PENDENTE';
             
             const payload = {
-                cliente_id: clienteData.id,
-                documentos: dadosParaSalvar
+                cliente_id: clienteAtualId,
+                nome_categoria: nomeCategoria,
+                status: novoStatus
             };
 
             try {
-                const response = await fetch(API_POST_URL, {
+                const response = await fetch(`${BASE_URL}/api/categorias/confirmar`, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
                 
                 const resultado = await response.json();
                 
                 if (response.ok) {
-                    alert(`Sucesso! Checklist de ${clienteData.nome} salvo na nuvem.`);
-                    // Recarrega a lista para mostrar o novo status vindo do BD
-                    carregarChecklist(); 
+                    alert(`Sucesso! Categoria '${nomeCategoria}' marcada como ${novoStatus}.`);
+                    // Recarrega os detalhes do cliente para refletir a nova contagem e status
+                    carregarDetalhesCliente(clienteAtualId); 
                 } else {
                     alert(`Erro ao salvar: ${resultado.erro || 'Erro desconhecido.'}`);
                 }
                 
             } catch (error) {
-                console.error('Erro ao enviar dados para a API:', error);
-                alert('Erro de conexão ao tentar salvar o checklist na nuvem.');
+                console.error('Erro de conexão ao tentar salvar:', error);
+                alert('Erro de conexão ao tentar salvar o status na nuvem.');
             }
         }
 
-        // Inicia o carregamento ao abrir a página
-        carregarChecklist();
-
+        // INICIA O FLUXO
+        carregarClientes();
     </script>
 </body>
 </html>
