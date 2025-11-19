@@ -76,7 +76,7 @@ def inicializar_banco_de_dados():
                 for cat_data in cliente_data['categorias']:
                     nova_categoria = Categoria(
                         cliente_id=novo_cliente.id,
-                        nome_categoria=cat_data['nome_categoria'],
+                        nome_categoria=cat_data['nome'],
                         status_recebimento=cat_data.get('status_recebimento', 'PENDENTE'),
                         detalhes_documentos=cat_data['detalhes_documentos'] # O setter do models.py converte a lista em JSON string
                     )
